@@ -6,6 +6,7 @@ import cl.ferrefix.exception.ResourceNotFoundException;
 import cl.ferrefix.model.dto.ErrorResponseDto;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -17,6 +18,9 @@ import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -27,6 +31,9 @@ import java.util.List;
 @Slf4j
 @RestControllerAdvice
 public class ApiExceptionHandler {
+
+    @Value("${ferrefix.upload.max-bytes}")
+    private long maxUploadBytes;
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponseDto> validacion(MethodArgumentNotValidException ex, HttpServletRequest req) {
@@ -73,7 +80,8 @@ public class ApiExceptionHandler {
      * y sus cabeceras (p. ej. "Allow" en el 405). Sin este handler los captura el genérico y devuelven 500.
      */
     @ExceptionHandler({NoResourceFoundException.class, HttpRequestMethodNotSupportedException.class,
-            HttpMediaTypeNotSupportedException.class, MissingServletRequestParameterException.class})
+            HttpMediaTypeNotSupportedException.class, MissingServletRequestParameterException.class,
+            MissingServletRequestPartException.class})
     public ResponseEntity<ErrorResponseDto> errorDeSpringMvc(Exception ex, HttpServletRequest req) {
         ErrorResponse errorResponse = (ErrorResponse) ex;
         HttpStatus status = HttpStatus.valueOf(errorResponse.getStatusCode().value());
@@ -82,11 +90,25 @@ public class ApiExceptionHandler {
             case HttpRequestMethodNotSupportedException e -> "Método HTTP no permitido para este recurso";
             case HttpMediaTypeNotSupportedException e -> "Tipo de contenido no soportado";
             case MissingServletRequestParameterException e -> "Falta el parámetro obligatorio: " + e.getParameterName();
+            case MissingServletRequestPartException e -> "Falta la parte obligatoria del formulario: " + e.getRequestPartName();
             default -> status.getReasonPhrase();
         };
         return ResponseEntity.status(status)
                 .headers(errorResponse.getHeaders())
                 .body(ErrorResponseDto.of(status.value(), status.getReasonPhrase(), mensaje, req.getRequestURI(), null));
+    }
+
+    /** Archivo (o petición) por sobre el límite de multipart. 413 en JSON en vez del 500 genérico. */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ErrorResponseDto> archivoDemasiadoGrande(HttpServletRequest req) {
+        return construir(HttpStatus.PAYLOAD_TOO_LARGE,
+                "El archivo supera el tamaño máximo permitido (" + (maxUploadBytes / 1024 / 1024) + " MB)", req, null);
+    }
+
+    /** Petición que debía ser multipart/form-data y no lo es (u otro fallo al leerla). */
+    @ExceptionHandler(MultipartException.class)
+    public ResponseEntity<ErrorResponseDto> multipartInvalido(HttpServletRequest req) {
+        return construir(HttpStatus.BAD_REQUEST, "La solicitud debe ser multipart/form-data con el archivo adjunto", req, null);
     }
 
     @ExceptionHandler(Exception.class)
