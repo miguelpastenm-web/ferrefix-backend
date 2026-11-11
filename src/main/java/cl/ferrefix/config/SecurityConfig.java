@@ -25,7 +25,7 @@ import java.util.List;
 
 /**
  * Seguridad stateless con JWT.
- *  - Públicos: login, register, refresh, Swagger y health.
+ *  - Públicos: login, register, refresh, lectura de productos, Swagger y health.
  *  - Todo lo demás exige token; el rol se controla por endpoint con @PreAuthorize("hasRole('ADMIN')").
  *  - 401 y 403 salen en JSON (ErrorResponseDto) desde los handlers de seguridad.
  */
@@ -60,8 +60,14 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(HttpMethod.POST,
                                 "/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/refresh").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/productos", "/api/v1/productos/**").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/actuator/health").permitAll()
+                        // Escritura de productos solo ADMIN, a nivel de URL: así el 401/403 se decide ANTES de validar el body.
+                        // Se mantiene además @PreAuthorize en el controller (defensa en profundidad).
+                        .requestMatchers(HttpMethod.POST, "/api/v1/productos", "/api/v1/productos/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/productos", "/api/v1/productos/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/productos", "/api/v1/productos/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
