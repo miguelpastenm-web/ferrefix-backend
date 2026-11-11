@@ -3,7 +3,7 @@
 API REST (Spring Boot 4 · Java 21 · Oracle · JWT) de la tienda Ferrefix: venta de productos,
 arriendo de máquinas, cotizaciones y panel administrativo. Un solo servicio.
 
-Frontend: https://github.com/arcatalanm/ferrefix-ui
+Frontend: https://github.com/miguelpastenm-web/ferrefix-ui
 
 ## Puesta en marcha
 
