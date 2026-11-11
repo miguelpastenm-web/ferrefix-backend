@@ -41,8 +41,12 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       CLIENT_EMAIL: ${CLIENT_EMAIL:-cliente@ferrefix.cl}
       CLIENT_PASSWORD: ${CLIENT_PASSWORD:-}
+      FERREFIX_UPLOAD_DIR: /app/uploads
+    volumes:
+      - uploads_data:/app/uploads   # imágenes subidas: sobreviven a recrear el contenedor
     ports:
       - "8080:8080"
 
 volumes:
   oracle_data:
+  uploads_data:
