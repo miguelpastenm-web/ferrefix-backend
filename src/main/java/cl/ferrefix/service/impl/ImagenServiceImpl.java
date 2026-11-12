@@ -28,7 +28,7 @@ import java.util.UUID;
 @Service
 public class ImagenServiceImpl implements ImagenService {
 
-    public static final Set<String> DESTINOS = Set.of("productos", "ofertas", "banners");
+    public static final Set<String> DESTINOS = Set.of("productos", "ofertas", "banners", "maquinas");
 
     enum Tipo {
         JPEG("image/jpeg", ".jpg"), PNG("image/png", ".png"), WEBP("image/webp", ".webp"), AVIF("image/avif", ".avif");
@@ -57,7 +57,7 @@ public class ImagenServiceImpl implements ImagenService {
     public ImagenResponseDto guardar(MultipartFile archivo, String destino) {
         String carpeta = destino == null ? "" : destino.trim().toLowerCase(Locale.ROOT);
         if (!DESTINOS.contains(carpeta)) {
-            throw new BadRequestException("Destino inválido. Valores permitidos: banners, ofertas, productos");
+            throw new BadRequestException("Destino inválido. Valores permitidos: banners, maquinas, ofertas, productos");
         }
         if (archivo == null || archivo.isEmpty()) {
             throw new BadRequestException("Debe adjuntar un archivo de imagen");

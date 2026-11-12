@@ -43,6 +43,6 @@ public class ProductoMapper {
     }
 
     public static String limpiar(String valor) {
-        return valor == null || valor.isBlank() ? null : valor.trim();
+        return cl.ferrefix.util.Textos.limpiar(valor);
     }
 }

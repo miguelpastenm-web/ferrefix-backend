@@ -37,7 +37,7 @@ public class ImagenController {
     })
     public ResponseEntity<ImagenResponseDto> subir(
             @RequestPart("archivo") MultipartFile archivo,
-            @Parameter(description = "productos, ofertas o banners", example = "productos")
+            @Parameter(description = "productos, ofertas, banners o maquinas", example = "productos")
             @RequestParam("destino") String destino) {
         return ResponseEntity.status(HttpStatus.CREATED).body(imagenService.guardar(archivo, destino));
     }
