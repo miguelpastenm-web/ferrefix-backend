@@ -5,6 +5,7 @@ import cl.ferrefix.security.RestAccessDeniedHandler;
 import cl.ferrefix.security.RestAuthenticationEntryPoint;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -25,7 +26,7 @@ import java.util.List;
 
 /**
  * Seguridad stateless con JWT.
- *  - Públicos: login, register, refresh, lectura de productos y máquinas, /media/**, Swagger y health.
+ *  - Públicos: login, register, refresh, lectura de productos y máquinas, crear cotizaciones, /media/**, Swagger y health.
  *  - Todo lo demás exige token; el rol se controla por endpoint con @PreAuthorize("hasRole('ADMIN')").
  *  - 401 y 403 salen en JSON (ErrorResponseDto) desde los handlers de seguridad.
  */
@@ -45,6 +46,19 @@ public class SecurityConfig {
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
+    }
+
+    /**
+     * JwtAuthenticationFilter es un @Component, así que Spring Boot además lo registraría por su cuenta como filtro
+     * del contenedor, FUERA de la cadena de seguridad y (según el entorno) antes que ella: ahí autentica, pero
+     * SecurityContextHolderFilter descarta ese contexto y la copia que sí está en la cadena se salta por ser
+     * OncePerRequestFilter. Se deshabilita ese registro para que el filtro viva SOLO dentro de la cadena.
+     */
+    @Bean
+    public FilterRegistrationBean<JwtAuthenticationFilter> jwtFilterSoloEnLaCadena() {
+        FilterRegistrationBean<JwtAuthenticationFilter> registro = new FilterRegistrationBean<>(jwtAuthenticationFilter);
+        registro.setEnabled(false);
+        return registro;
     }
 
     @Bean
@@ -92,6 +106,10 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/ordenes").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PATCH, "/api/v1/ordenes/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/api/v1/ordenes/**").hasRole("ADMIN")
+                        // Cotizaciones: CREAR es público (con o sin token); todo lo demás es solo ADMIN. El orden importa:
+                        // la regla pública del POST va antes del "cualquier otro método = ADMIN".
+                        .requestMatchers(HttpMethod.POST, "/api/v1/cotizaciones").permitAll()
+                        .requestMatchers("/api/v1/cotizaciones", "/api/v1/cotizaciones/**").hasRole("ADMIN")
                         // Imágenes: cualquier método sobre /api/v1/imagenes exige ADMIN (además de @PreAuthorize)
                         .requestMatchers("/api/v1/imagenes", "/api/v1/imagenes/**").hasRole("ADMIN")
                         .anyRequest().authenticated())

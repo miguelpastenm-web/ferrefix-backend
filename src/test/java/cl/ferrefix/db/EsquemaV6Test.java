@@ -1,7 +1,9 @@
 package cl.ferrefix.db;
 
+import cl.ferrefix.model.EstadoCotizacion;
 import cl.ferrefix.model.EstadoOrden;
 import cl.ferrefix.model.MetodoPago;
+import cl.ferrefix.model.TipoProyecto;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -71,12 +73,49 @@ class EsquemaV6Test {
     }
 
     @Test
-    void laTablaDeCotizacionesTieneLosEstadosYLosSeisTiposDelFormulario() {
-        assertEquals(Set.of("PENDIENTE", "EN_REVISION", "RESPONDIDA", "CERRADA"), valoresDelCheck("CK_COTIZACIONES_ESTADO"));
+    void elCheckDeEstadoDeCotizacionCoincideConElEnum() {
+        assertEquals(Arrays.stream(EstadoCotizacion.values()).map(Enum::name).collect(Collectors.toCollection(TreeSet::new)),
+                valoresDelCheck("CK_COTIZACIONES_ESTADO"));
+    }
+
+    @Test
+    void elCheckDeTipoDeProyectoCoincideConLosTextosDelCodigo() {
+        // El código (TipoProyecto.TODOS) y el CHECK de V6 deben ser exactamente los mismos 6 textos.
+        assertEquals(new TreeSet<>(TipoProyecto.TODOS), valoresDelCheck("CK_COTIZACIONES_TIPO"));
+        assertEquals(6, TipoProyecto.TODOS.size());
+    }
+
+    @Test
+    void losSeisTiposSonLosDelSelectorDelFormularioDelFront() {
+        // Guarda adicional contra un cambio simultáneo y silencioso del código y del CHECK: el texto debe seguir siendo el del front.
         assertEquals(Set.of("Herramientas de Alto Rendimiento", "Materiales de Obra Gruesa", "Fijaciones y Tornillería por Mayor",
-                        "Arriendo de Maquinaria y Demoledores", "Equipamiento de Seguridad y Faena", "Otro Requerimiento Especial"),
-                valoresDelCheck("CK_COTIZACIONES_TIPO"));
+                "Arriendo de Maquinaria y Demoledores", "Equipamiento de Seguridad y Faena", "Otro Requerimiento Especial"),
+                new TreeSet<>(TipoProyecto.TODOS));
+    }
+
+    @Test
+    void tipoDeProyectoCanonicaIgnoraMayusculasYEspaciosYRechazaElResto() {
+        for (String tipo : TipoProyecto.TODOS) {
+            assertEquals(tipo, TipoProyecto.canonica("  " + tipo.toUpperCase() + " ").orElseThrow());
+        }
+        assertTrue(TipoProyecto.canonica("Todas").isEmpty());
+        assertTrue(TipoProyecto.canonica("").isEmpty());
+        assertTrue(TipoProyecto.canonica(null).isEmpty());
+    }
+
+    @Test
+    void laCotizacionPuedeQuedarSinUsuarioYSuFkLoDejaEnNullSiSeBorraElUsuario() {
         assertTrue(sql.contains("FK_COTIZACIONES_USUARIO FOREIGN KEY (USUARIO_ID) REFERENCES USUARIOS (ID) ON DELETE SET NULL"));
+        assertTrue(Pattern.compile("COTIZACIONES \\([^;]*USUARIO_ID\\s+NUMBER\\(19,0\\),", Pattern.DOTALL).matcher(sql).find(), "USUARIO_ID debe ser nullable");
+    }
+
+    @Test
+    void losLargosDeLasColumnasDeCotizacionesSonLosQueAsumenLasValidaciones() {
+        for (String columna : new String[]{"NOMBRE        VARCHAR2(80 CHAR)", "RUT           VARCHAR2(12 CHAR)", "EMAIL         VARCHAR2(120 CHAR)",
+                "TELEFONO      VARCHAR2(20 CHAR)", "TIPO_PROYECTO VARCHAR2(60 CHAR)", "REGION        VARCHAR2(80 CHAR)",
+                "DETALLE       VARCHAR2(2000 CHAR)", "NOTA_ADMIN    VARCHAR2(1000 CHAR)"}) {
+            assertTrue(sql.contains(columna), "Cambió el largo de: " + columna.trim());
+        }
     }
 
     @Test
