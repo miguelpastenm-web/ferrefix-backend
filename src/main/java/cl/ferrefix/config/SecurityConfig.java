@@ -85,6 +85,13 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.PUT, "/api/v1/arriendos/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PATCH, "/api/v1/arriendos/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/api/v1/arriendos/**").hasRole("ADMIN")
+                        // Órdenes: comprar y ver las propias solo CLIENTE (ADMIN no compra); gestionar solo ADMIN.
+                        // GET /ordenes/{id} queda para cualquier autenticado (el service oculta las ajenas con 404).
+                        .requestMatchers(HttpMethod.POST, "/api/v1/ordenes").hasRole("CLIENTE")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/ordenes/mis-ordenes").hasRole("CLIENTE")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/ordenes").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PATCH, "/api/v1/ordenes/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/ordenes/**").hasRole("ADMIN")
                         // Imágenes: cualquier método sobre /api/v1/imagenes exige ADMIN (además de @PreAuthorize)
                         .requestMatchers("/api/v1/imagenes", "/api/v1/imagenes/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
