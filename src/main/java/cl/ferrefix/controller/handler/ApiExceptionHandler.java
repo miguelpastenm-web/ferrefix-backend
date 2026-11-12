@@ -73,11 +73,14 @@ public class ApiExceptionHandler {
     public ResponseEntity<ErrorResponseDto> conflicto(Exception ex, HttpServletRequest req) {
         String mensaje = ex instanceof DataIntegrityViolationException
                 ? "La operación viola una restricción de datos (registro duplicado o en uso)" : ex.getMessage();
-        return construir(HttpStatus.CONFLICT, mensaje, req, null);
+        List<String> detalles = ex instanceof ConflictException c && !c.getDetalles().isEmpty() ? c.getDetalles() : null;
+        return construir(HttpStatus.CONFLICT, mensaje, req, detalles);
     }
 
-    /** Otra operación mantiene bloqueado el recurso más allá del tiempo de espera: se pide reintentar. */
-    @ExceptionHandler(PessimisticLockingFailureException.class)
+    /** Otra operación mantiene bloqueado el recurso (o la consulta venció tras 10 s de espera): se pide reintentar. */
+    @ExceptionHandler({PessimisticLockingFailureException.class, org.springframework.dao.QueryTimeoutException.class,
+            jakarta.persistence.QueryTimeoutException.class, jakarta.persistence.LockTimeoutException.class,
+            jakarta.persistence.PessimisticLockException.class})
     public ResponseEntity<ErrorResponseDto> recursoOcupado(HttpServletRequest req) {
         return construir(HttpStatus.CONFLICT, "El recurso está siendo modificado por otra operación. Intente nuevamente", req, null);
     }
