@@ -5,6 +5,9 @@
 #                              => exactamente 1 x 201 y 7 x 409; stock final 0 y estado AGOTADO.
 #  Prueba 2 (sin deadlock):    dos productos y órdenes simultáneas con las MISMAS líneas en orden inverso
 #                              ([A,B] y [B,A]) => todas 201, ningún 5xx; stock descontado exacto.
+#  Prueba 3 (cancelar y borrar): producto con stock 1: comprar => 0/AGOTADO; cancelar => vuelve a 1/DISPONIBLE;
+#                              cancelar otra vez => 409 (sin doble devolución); un ADMIN no puede comprar (403);
+#                              DELETE de una orden PAGADA => 409; DELETE de la CANCELADA => 204.
 #
 # Credenciales: se leen de .env (ADMIN_EMAIL/ADMIN_PASSWORD y CLIENT_EMAIL/CLIENT_PASSWORD) y NUNCA se imprimen:
 # no viajan por argumentos de curl (se usan stdin y un archivo de cabeceras con permisos 600).
@@ -139,6 +142,34 @@ for ronda in 1 2 3; do
 done
 verificar "stock final del producto B" "30 DISPONIBLE" "$(estado_producto "$PA")"
 verificar "stock final del producto C" "30 DISPONIBLE" "$(estado_producto "$PB")"
+
+echo; echo "== Prueba 3: cancelar devuelve el stock una sola vez, y reglas de borrado y de rol =="
+P3="$(crear_producto D 1)" || { echo "No se pudo crear el producto de prueba"; exit 2; }
+
+verificar "CLIENTE compra 1 unidad (HTTP)" 201 "$(http "$HDR_CLIENTE" POST /api/v1/ordenes "$(orden_json "$P3:1")")"
+O1="$(json "$TMP/last.json" id)"; echo "$O1" >> "$ORDENES"
+verificar "tras comprar: stock y estado" "0 AGOTADO" "$(estado_producto "$P3")"
+
+verificar "ADMIN cancela la orden (HTTP)" 200 "$(http "$HDR_ADMIN" PATCH "/api/v1/ordenes/$O1/estado" '{"estado":"CANCELADA"}')"
+verificar "orden cancelada: estado" CANCELADA "$(json "$TMP/last.json" estado)"
+verificar "tras cancelar: el stock vuelve" "1 DISPONIBLE" "$(estado_producto "$P3")"
+
+verificar "cancelar de nuevo (HTTP)" 409 "$(http "$HDR_ADMIN" PATCH "/api/v1/ordenes/$O1/estado" '{"estado":"CANCELADA"}')"
+verificar "tras la 2ª cancelación: sin doble devolución" "1 DISPONIBLE" "$(estado_producto "$P3")"
+
+verificar "ADMIN intenta comprar (HTTP)" 403 "$(http "$HDR_ADMIN" POST /api/v1/ordenes "$(orden_json "$P3:1")")"
+verificar "tras el intento del ADMIN: stock intacto" "1 DISPONIBLE" "$(estado_producto "$P3")"
+
+verificar "CLIENTE vuelve a comprar (HTTP)" 201 "$(http "$HDR_CLIENTE" POST /api/v1/ordenes "$(orden_json "$P3:1")")"
+O2="$(json "$TMP/last.json" id)"; echo "$O2" >> "$ORDENES"
+verificar "segunda orden: estado" PAGADA "$(json "$TMP/last.json" estado)"
+verificar "DELETE de la orden PAGADA (HTTP)" 409 "$(http "$HDR_ADMIN" DELETE "/api/v1/ordenes/$O2")"
+verificar "la orden PAGADA sigue existiendo" PAGADA "$(http "$HDR_ADMIN" GET "/api/v1/ordenes/$O2" >/dev/null; json "$TMP/last.json" estado)"
+verificar "DELETE no tocó el stock" "0 AGOTADO" "$(estado_producto "$P3")"
+
+verificar "DELETE de la orden CANCELADA (HTTP)" 204 "$(http "$HDR_ADMIN" DELETE "/api/v1/ordenes/$O1")"
+verificar "la orden eliminada ya no existe (HTTP)" 404 "$(http "$HDR_ADMIN" GET "/api/v1/ordenes/$O1")"
+verificar "eliminar no devolvió stock extra" "0 AGOTADO" "$(estado_producto "$P3")"
 
 echo
 if [ "$FALLAS" -eq 0 ]; then echo "RESULTADO: TODO OK"; STATUS=0; else echo "RESULTADO: $FALLAS verificación(es) fallaron"; STATUS=1; fi
