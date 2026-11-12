@@ -64,6 +64,17 @@ class SeedMediaTest {
     }
 
     @Test
+    void cadaImagenDeMaquinasDelV5SeSirvePublicaComoWebp() throws Exception {
+        List<String> urls = SeedMaquinasSql.modelos(SeedMaquinasSql.leer()).stream().map(SeedMaquinasSql.Modelo::imagen).toList();
+        assertEquals(4, urls.size());
+        for (String url : urls) {
+            mvc.perform(get(url))
+                    .andExpect(status().isOk())
+                    .andExpect(content().contentTypeCompatibleWith("image/webp"));
+        }
+    }
+
+    @Test
     void imagenSembradaInexistenteDa404() throws Exception {
         mvc.perform(get("/media/productos/no-existe.webp")).andExpect(status().isNotFound());
     }

@@ -11,6 +11,8 @@ import cl.ferrefix.model.dto.ProductoResponseDto;
 import cl.ferrefix.model.mapper.ProductoMapper;
 import cl.ferrefix.repository.ProductoRepository;
 import cl.ferrefix.service.ProductoService;
+import cl.ferrefix.util.EspecificacionesUtil;
+import cl.ferrefix.util.SortUtil;
 import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
@@ -41,7 +43,7 @@ public class ProductoServiceImpl implements ProductoService {
     @Override
     @Transactional(readOnly = true)
     public List<ProductoResponseDto> listar(String q, String categoria, String marca, String sort) {
-        Sort orden = parsearSort(sort);
+        Sort orden = SortUtil.parsear(sort, CAMPOS_ORDENABLES);
         String categoriaCanonica = null;
         if (categoria != null && !categoria.isBlank()) {
             categoriaCanonica = CategoriaProducto.canonica(categoria)
@@ -66,7 +68,7 @@ public class ProductoServiceImpl implements ProductoService {
             throw new DuplicateResourceException("Ya existe un producto con el SKU " + sku);
         }
         String categoria = categoriaValida(request.categoria());
-        Map<String, String> specs = normalizarEspecificaciones(request.especificaciones());
+        Map<String, String> specs = EspecificacionesUtil.normalizar(request.especificaciones());
 
         Producto producto = productoMapper.toEntity(request, sku, categoria, specs);
         producto.recalcularEstado();
@@ -82,7 +84,7 @@ public class ProductoServiceImpl implements ProductoService {
             throw new DuplicateResourceException("Ya existe otro producto con el SKU " + sku);
         }
         String categoria = categoriaValida(request.categoria());
-        Map<String, String> specs = normalizarEspecificaciones(request.especificaciones());
+        Map<String, String> specs = EspecificacionesUtil.normalizar(request.especificaciones());
 
         // Campo a campo: se conservan id y createdAt.
         producto.setSku(sku);
@@ -122,34 +124,6 @@ public class ProductoServiceImpl implements ProductoService {
     }
 
     /**
-     * Valida y limpia las especificaciones conservando el orden de llegada.
-     * Clave y valor no vacíos, hasta 80 y 300 caracteres, y sin claves repetidas tras recortar espacios.
-     */
-    private Map<String, String> normalizarEspecificaciones(Map<String, String> entrada) {
-        Map<String, String> resultado = new LinkedHashMap<>();
-        if (entrada == null) {
-            return resultado;
-        }
-        for (Map.Entry<String, String> e : entrada.entrySet()) {
-            String clave = e.getKey() == null ? "" : e.getKey().trim();
-            String valor = e.getValue() == null ? "" : e.getValue().trim();
-            if (clave.isEmpty() || valor.isEmpty()) {
-                throw new BadRequestException("Las especificaciones no pueden tener clave ni valor vacíos");
-            }
-            if (clave.length() > 80) {
-                throw new BadRequestException("La clave de una especificación no puede superar 80 caracteres");
-            }
-            if (valor.length() > 300) {
-                throw new BadRequestException("El valor de la especificación '" + clave + "' supera 300 caracteres");
-            }
-            if (resultado.put(clave, valor) != null) {
-                throw new BadRequestException("Especificación repetida: " + clave);
-            }
-        }
-        return resultado;
-    }
-
-    /**
      * Actualiza en el lugar (por clave) en vez de borrar y reinsertar: Hibernate ejecuta los INSERT antes
      * que los DELETE y chocaría con UNIQUE (PRODUCTO_ID, CLAVE).
      */
@@ -173,22 +147,6 @@ public class ProductoServiceImpl implements ProductoService {
         // En memoria quedan las existentes primero y las nuevas al final: se reordena por ORDEN
         // para que la respuesta del PUT sea idéntica al GET posterior (la BD ya lo devuelve así por @OrderBy).
         producto.getEspecificaciones().sort(Comparator.comparing(ProductoEspecificacion::getOrden));
-    }
-
-    /** "campo" o "campo,asc|desc". Campo y dirección se validan contra listas cerradas. */
-    private Sort parsearSort(String sort) {
-        if (sort == null || sort.isBlank()) {
-            return Sort.by(Sort.Order.asc("nombre"), Sort.Order.asc("id"));
-        }
-        String[] partes = sort.split(",", -1);
-        String propiedad = partes.length >= 1 ? CAMPOS_ORDENABLES.get(partes[0].trim().toLowerCase(Locale.ROOT)) : null;
-        String dir = partes.length == 2 ? partes[1].trim().toLowerCase(Locale.ROOT) : "asc";
-        if (partes.length > 2 || propiedad == null || !(dir.equals("asc") || dir.equals("desc"))) {
-            throw new BadRequestException("Parámetro sort inválido. Use campo[,asc|desc] con campo en "
-                    + new TreeSet<>(CAMPOS_ORDENABLES.keySet()));
-        }
-        Sort.Direction direccion = dir.equals("desc") ? Sort.Direction.DESC : Sort.Direction.ASC;
-        return Sort.by(new Sort.Order(direccion, propiedad), Sort.Order.asc("id"));
     }
 
     private Specification<Producto> filtros(String q, String categoria, String marca) {

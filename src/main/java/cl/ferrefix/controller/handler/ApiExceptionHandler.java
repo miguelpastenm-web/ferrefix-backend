@@ -1,6 +1,7 @@
 package cl.ferrefix.controller.handler;
 
 import cl.ferrefix.exception.BadRequestException;
+import cl.ferrefix.exception.ConflictException;
 import cl.ferrefix.exception.DuplicateResourceException;
 import cl.ferrefix.exception.ResourceNotFoundException;
 import cl.ferrefix.model.dto.ErrorResponseDto;
@@ -8,6 +9,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -67,11 +69,17 @@ public class ApiExceptionHandler {
         return construir(HttpStatus.NOT_FOUND, ex.getMessage(), req, null);
     }
 
-    @ExceptionHandler({DuplicateResourceException.class, DataIntegrityViolationException.class})
+    @ExceptionHandler({DuplicateResourceException.class, ConflictException.class, DataIntegrityViolationException.class})
     public ResponseEntity<ErrorResponseDto> conflicto(Exception ex, HttpServletRequest req) {
-        String mensaje = ex instanceof DuplicateResourceException
-                ? ex.getMessage() : "La operación viola una restricción de datos (registro duplicado o en uso)";
+        String mensaje = ex instanceof DataIntegrityViolationException
+                ? "La operación viola una restricción de datos (registro duplicado o en uso)" : ex.getMessage();
         return construir(HttpStatus.CONFLICT, mensaje, req, null);
+    }
+
+    /** Otra operación mantiene bloqueado el recurso más allá del tiempo de espera: se pide reintentar. */
+    @ExceptionHandler(PessimisticLockingFailureException.class)
+    public ResponseEntity<ErrorResponseDto> recursoOcupado(HttpServletRequest req) {
+        return construir(HttpStatus.CONFLICT, "El recurso está siendo modificado por otra operación. Intente nuevamente", req, null);
     }
 
     /**

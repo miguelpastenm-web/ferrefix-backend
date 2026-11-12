@@ -103,10 +103,11 @@ class ImagenServiceTest {
     }
 
     @Test
-    void aceptaLosTresDestinosSinImportarMayusculas() {
+    void aceptaLosCuatroDestinosSinImportarMayusculas() {
         assertTrue(service.guardar(archivo("a.png", PNG), "Productos").url().startsWith("/media/productos/"));
         assertTrue(service.guardar(archivo("a.png", PNG), " OFERTAS ").url().startsWith("/media/ofertas/"));
         assertTrue(service.guardar(archivo("a.png", PNG), "banners").url().startsWith("/media/banners/"));
+        assertTrue(service.guardar(archivo("a.png", PNG), "Maquinas").url().startsWith("/media/maquinas/"));
     }
 
     // ---------------------------------------------------------------- rechazos

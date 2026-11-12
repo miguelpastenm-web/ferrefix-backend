@@ -25,7 +25,7 @@ import java.util.List;
 
 /**
  * Seguridad stateless con JWT.
- *  - Públicos: login, register, refresh, lectura de productos, /media/**, Swagger y health.
+ *  - Públicos: login, register, refresh, lectura de productos y máquinas, /media/**, Swagger y health.
  *  - Todo lo demás exige token; el rol se controla por endpoint con @PreAuthorize("hasRole('ADMIN')").
  *  - 401 y 403 salen en JSON (ErrorResponseDto) desde los handlers de seguridad.
  */
@@ -60,7 +60,10 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(HttpMethod.POST,
                                 "/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/refresh").permitAll()
+                        // El detalle de unidades es solo para ADMIN: debe ir ANTES del permitAll de /maquinas/**
+                        .requestMatchers(HttpMethod.GET, "/api/v1/maquinas/*/unidades").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/v1/productos", "/api/v1/productos/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/maquinas", "/api/v1/maquinas/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/media/**").permitAll()
                         .requestMatchers(HttpMethod.HEAD, "/media/**").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
@@ -70,6 +73,18 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v1/productos", "/api/v1/productos/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/v1/productos", "/api/v1/productos/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/api/v1/productos", "/api/v1/productos/**").hasRole("ADMIN")
+                        // Escritura de máquinas y de sus unidades solo ADMIN
+                        .requestMatchers(HttpMethod.POST, "/api/v1/maquinas", "/api/v1/maquinas/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/maquinas", "/api/v1/maquinas/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/maquinas", "/api/v1/maquinas/**").hasRole("ADMIN")
+                        // Arriendos: arrendar y ver los propios solo CLIENTE; gestionar solo ADMIN.
+                        // GET /arriendos/{id} queda para cualquier autenticado (el service oculta los ajenos con 404).
+                        .requestMatchers(HttpMethod.POST, "/api/v1/arriendos").hasRole("CLIENTE")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/arriendos/mis-arriendos").hasRole("CLIENTE")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/arriendos").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/arriendos/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PATCH, "/api/v1/arriendos/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/arriendos/**").hasRole("ADMIN")
                         // Imágenes: cualquier método sobre /api/v1/imagenes exige ADMIN (además de @PreAuthorize)
                         .requestMatchers("/api/v1/imagenes", "/api/v1/imagenes/**").hasRole("ADMIN")
                         .anyRequest().authenticated())

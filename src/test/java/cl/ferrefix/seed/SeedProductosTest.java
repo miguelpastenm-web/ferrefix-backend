@@ -79,12 +79,16 @@ class SeedProductosTest {
         assertEquals(urls.size(), new HashSet<>(urls).size(), "Dos productos comparten la misma imagen");
         assertEquals(26, urls.size());
 
+        // Solo las carpetas de productos; las de máquinas (seed-media/maquinas) las cubre SeedMaquinasTest.
         Set<String> enDisco = new TreeSet<>();
-        for (Resource r : new PathMatchingResourcePatternResolver().getResources("classpath*:seed-media/**/*.webp")) {
-            String ruta = r.getURL().toString();
-            enDisco.add("/media/" + ruta.substring(ruta.indexOf("seed-media/") + "seed-media/".length()));
+        PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
+        for (String patron : new String[]{"classpath*:seed-media/productos/*.webp", "classpath*:seed-media/ofertas/*.webp"}) {
+            for (Resource r : resolver.getResources(patron)) {
+                String ruta = r.getURL().toString();
+                enDisco.add("/media/" + ruta.substring(ruta.indexOf("seed-media/") + "seed-media/".length()));
+            }
         }
-        assertEquals(new TreeSet<>(urls), enDisco, "seed-media y V3 no coinciden");
+        assertEquals(new TreeSet<>(urls), enDisco, "seed-media/productos|ofertas y V3 no coinciden");
     }
 
     @Test
