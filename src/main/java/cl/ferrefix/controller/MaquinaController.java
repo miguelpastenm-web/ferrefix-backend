@@ -66,13 +66,14 @@ public class MaquinaController {
 
     @PutMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
-    @Operation(summary = "Actualizar máquina", description = "Solo ADMIN. Reemplaza los campos y las especificaciones; no cambia las unidades ni el estado.")
+    @Operation(summary = "Actualizar máquina", description = "Solo ADMIN. Reemplaza los campos y las especificaciones; no cambia las unidades ni el estado. "
+            + "El código NO se puede cambiar (las unidades se nombran con él): el body debe incluir el código actual.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Actualizada"),
             @ApiResponse(responseCode = "400", description = "Datos inválidos"),
             @ApiResponse(responseCode = "403", description = "No es ADMIN"),
             @ApiResponse(responseCode = "404", description = "No existe"),
-            @ApiResponse(responseCode = "409", description = "Código repetido")})
+            @ApiResponse(responseCode = "409", description = "Se intentó cambiar el código de la máquina")})
     public ResponseEntity<MaquinaResponseDto> actualizar(@PathVariable Long id, @Valid @RequestBody MaquinaRequestDto request) {
         return ResponseEntity.ok(maquinaService.actualizar(id, request));
     }

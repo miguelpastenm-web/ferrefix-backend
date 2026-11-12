@@ -9,19 +9,19 @@ import cl.ferrefix.model.dto.MaquinaRequestDto;
 import cl.ferrefix.model.dto.MaquinaResponseDto;
 import cl.ferrefix.model.dto.UnidadResponseDto;
 import cl.ferrefix.model.mapper.MaquinaMapper;
+import cl.ferrefix.repository.ArriendoRepository;
 import cl.ferrefix.repository.MaquinaRepository;
 import cl.ferrefix.repository.MaquinaUnidadRepository;
+import cl.ferrefix.service.MaquinaDisponibilidad;
 import cl.ferrefix.service.impl.MaquinaServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 
@@ -38,8 +38,16 @@ class MaquinaServiceTest {
 
     @Mock MaquinaRepository maquinaRepo;
     @Mock MaquinaUnidadRepository unidadRepo;
+    @Mock ArriendoRepository arriendoRepo;
     @Spy MaquinaMapper mapper = new MaquinaMapper();
-    @InjectMocks MaquinaServiceImpl service;
+    MaquinaServiceImpl service;
+
+    @BeforeEach
+    void setUp() {
+        // MaquinaDisponibilidad real sobre los mismos mocks: así se verifica el orden bloqueo -> cambios.
+        service = new MaquinaServiceImpl(maquinaRepo, unidadRepo, arriendoRepo, mapper,
+                new MaquinaDisponibilidad(maquinaRepo, unidadRepo));
+    }
 
     private static Map<String, String> specs(String... kv) {
         Map<String, String> m = new LinkedHashMap<>();
@@ -164,23 +172,29 @@ class MaquinaServiceTest {
 
     // ---------------------------------------------------------------- eliminar
     @Test
-    void eliminarBloqueaElModeloAntesDeBorrar() {
+    void eliminarBloqueaElModeloRevisaArriendosYLuegoBorra() {
         Maquina m = maquina(5, "A", EstadoMaquina.DISPONIBLE);
         when(maquinaRepo.findByIdForUpdate(5L)).thenReturn(Optional.of(m));
+        when(arriendoRepo.existsByUnidadMaquinaId(5L)).thenReturn(false);
+
         service.eliminar(5L);
-        InOrder orden = inOrder(maquinaRepo);
+
+        InOrder orden = inOrder(maquinaRepo, arriendoRepo);
         orden.verify(maquinaRepo).findByIdForUpdate(5L);
+        orden.verify(arriendoRepo).existsByUnidadMaquinaId(5L);
         orden.verify(maquinaRepo).delete(m);
-        orden.verify(maquinaRepo).flush();
     }
 
     @Test
-    void eliminarConArriendosHistoricosDa409() {
+    void eliminarConArriendosRegistradosDa409SinBorrar() {
         Maquina m = maquina(5, "A", EstadoMaquina.DISPONIBLE);
         when(maquinaRepo.findByIdForUpdate(5L)).thenReturn(Optional.of(m));
-        doThrow(new DataIntegrityViolationException("ORA-02292")).when(maquinaRepo).flush();
+        when(arriendoRepo.existsByUnidadMaquinaId(5L)).thenReturn(true);
+
         ConflictException ex = assertThrows(ConflictException.class, () -> service.eliminar(5L));
-        assertTrue(ex.getMessage().contains("arriendos"));
+
+        assertTrue(ex.getMessage().contains("arriendos registrados"));
+        verify(maquinaRepo, never()).delete(any(Maquina.class));
     }
 
     @Test
@@ -250,12 +264,16 @@ class MaquinaServiceTest {
     }
 
     @Test
-    void eliminarUnidadConHistorialDa409() {
+    void eliminarUnidadConHistorialDa409SinBorrar() {
         Maquina m = maquina(5, "A", EstadoMaquina.DISPONIBLE);
         when(maquinaRepo.findByIdForUpdate(5L)).thenReturn(Optional.of(m));
         when(unidadRepo.findByIdAndMaquinaId(7L, 5L)).thenReturn(Optional.of(unidad(m, 7, "A-U01", EstadoUnidad.DISPONIBLE)));
-        doThrow(new DataIntegrityViolationException("ORA-02292")).when(unidadRepo).flush();
-        assertThrows(ConflictException.class, () -> service.eliminarUnidad(5L, 7L));
+        when(arriendoRepo.existsByUnidadId(7L)).thenReturn(true);
+
+        ConflictException ex = assertThrows(ConflictException.class, () -> service.eliminarUnidad(5L, 7L));
+
+        assertTrue(ex.getMessage().contains("arriendos registrados"));
+        verify(unidadRepo, never()).delete(any(MaquinaUnidad.class));
     }
 
     @Test

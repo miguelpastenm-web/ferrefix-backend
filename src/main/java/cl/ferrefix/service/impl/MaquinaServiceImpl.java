@@ -9,15 +9,16 @@ import cl.ferrefix.model.dto.MaquinaRequestDto;
 import cl.ferrefix.model.dto.MaquinaResponseDto;
 import cl.ferrefix.model.dto.UnidadResponseDto;
 import cl.ferrefix.model.mapper.MaquinaMapper;
+import cl.ferrefix.repository.ArriendoRepository;
 import cl.ferrefix.repository.MaquinaRepository;
 import cl.ferrefix.repository.MaquinaUnidadRepository;
+import cl.ferrefix.service.MaquinaDisponibilidad;
 import cl.ferrefix.service.MaquinaService;
 import cl.ferrefix.util.EspecificacionesUtil;
 import cl.ferrefix.util.SortUtil;
 import cl.ferrefix.util.Textos;
 import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
@@ -44,7 +45,9 @@ public class MaquinaServiceImpl implements MaquinaService {
 
     private final MaquinaRepository maquinaRepository;
     private final MaquinaUnidadRepository unidadRepository;
+    private final ArriendoRepository arriendoRepository;
     private final MaquinaMapper mapper;
+    private final MaquinaDisponibilidad disponibilidad;
 
     // ---------------------------------------------------------------- lectura
     @Override
@@ -103,13 +106,12 @@ public class MaquinaServiceImpl implements MaquinaService {
     @Override
     @Transactional
     public void eliminar(Long id) {
-        Maquina m = bloquear(id);
-        try {
-            maquinaRepository.delete(m);
-            maquinaRepository.flush(); // fuerza el DELETE aquí para traducir la violación de FK en un 409 claro
-        } catch (DataIntegrityViolationException e) {
+        Maquina m = disponibilidad.bloquear(id);
+        // Con el modelo bloqueado nadie puede crear arriendos sobre él, así que este chequeo no tiene carreras.
+        if (arriendoRepository.existsByUnidadMaquinaId(id)) {
             throw new ConflictException("La máquina tiene arriendos registrados y no puede eliminarse");
         }
+        maquinaRepository.delete(m);
     }
 
     // ---------------------------------------------------------------- unidades
@@ -126,7 +128,7 @@ public class MaquinaServiceImpl implements MaquinaService {
         if (cantidad < 1 || cantidad > MAX_UNIDADES_POR_ALTA) {
             throw new BadRequestException("La cantidad debe estar entre 1 y " + MAX_UNIDADES_POR_ALTA);
         }
-        Maquina m = bloquear(maquinaId); // 1) siempre se bloquea el modelo primero
+        Maquina m = disponibilidad.bloquear(maquinaId); // 1) siempre se bloquea el modelo primero
 
         int siguiente = unidadRepository.findByMaquinaIdOrderByCodigoAsc(maquinaId).stream()
                 .map(u -> SUFIJO_UNIDAD.matcher(u.getCodigo()))
@@ -143,45 +145,30 @@ public class MaquinaServiceImpl implements MaquinaService {
             nuevas.add(u);
         }
         List<MaquinaUnidad> guardadas = unidadRepository.saveAll(nuevas);
-        recalcularEstado(m);
+        disponibilidad.recalcularEstado(m);
         return guardadas.stream().map(mapper::toResponse).toList();
     }
 
     @Override
     @Transactional
     public void eliminarUnidad(Long maquinaId, Long unidadId) {
-        Maquina m = bloquear(maquinaId);
+        Maquina m = disponibilidad.bloquear(maquinaId);
         MaquinaUnidad u = unidadRepository.findByIdAndMaquinaId(unidadId, maquinaId)
                 .orElseThrow(() -> new ResourceNotFoundException("Unidad no encontrada: " + unidadId));
         if (u.getEstado() != EstadoUnidad.DISPONIBLE) {
             throw new ConflictException("La unidad " + u.getCodigo() + " está arrendada y no puede eliminarse");
         }
-        try {
-            unidadRepository.delete(u);
-            unidadRepository.flush();
-        } catch (DataIntegrityViolationException e) {
+        if (arriendoRepository.existsByUnidadId(unidadId)) {
             throw new ConflictException("La unidad " + u.getCodigo() + " tiene arriendos registrados y no puede eliminarse");
         }
-        recalcularEstado(m);
+        unidadRepository.delete(u);
+        disponibilidad.recalcularEstado(m);
     }
 
     // ---------------------------------------------------------------- helpers
     private Maquina buscar(Long id) {
         return maquinaRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Máquina no encontrada: " + id));
-    }
-
-    /** SELECT ... FOR UPDATE del modelo: primer paso de toda operación que modifica sus unidades. */
-    private Maquina bloquear(Long id) {
-        return maquinaRepository.findByIdForUpdate(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Máquina no encontrada: " + id));
-    }
-
-    /** DISPONIBLE si queda al menos una unidad libre; si no, NO_DISPONIBLE. Se llama con el modelo ya bloqueado. */
-    private void recalcularEstado(Maquina m) {
-        long libres = unidadRepository.countByMaquinaIdAndEstado(m.getId(), EstadoUnidad.DISPONIBLE);
-        m.setEstado(libres > 0 ? EstadoMaquina.DISPONIBLE : EstadoMaquina.NO_DISPONIBLE);
-        m.setUpdatedAt(LocalDateTime.now());
     }
 
     /** maquinaId -> {total, disponibles}. Una sola consulta agrupada para todos los modelos pedidos. */

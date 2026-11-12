@@ -77,6 +77,14 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v1/maquinas", "/api/v1/maquinas/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/v1/maquinas", "/api/v1/maquinas/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/api/v1/maquinas", "/api/v1/maquinas/**").hasRole("ADMIN")
+                        // Arriendos: arrendar y ver los propios solo CLIENTE; gestionar solo ADMIN.
+                        // GET /arriendos/{id} queda para cualquier autenticado (el service oculta los ajenos con 404).
+                        .requestMatchers(HttpMethod.POST, "/api/v1/arriendos").hasRole("CLIENTE")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/arriendos/mis-arriendos").hasRole("CLIENTE")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/arriendos").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/arriendos/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PATCH, "/api/v1/arriendos/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/arriendos/**").hasRole("ADMIN")
                         // Imágenes: cualquier método sobre /api/v1/imagenes exige ADMIN (además de @PreAuthorize)
                         .requestMatchers("/api/v1/imagenes", "/api/v1/imagenes/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
