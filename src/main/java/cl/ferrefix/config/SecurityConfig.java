@@ -110,6 +110,8 @@ public class SecurityConfig {
                         // la regla pública del POST va antes del "cualquier otro método = ADMIN".
                         .requestMatchers(HttpMethod.POST, "/api/v1/cotizaciones").permitAll()
                         .requestMatchers("/api/v1/cotizaciones", "/api/v1/cotizaciones/**").hasRole("ADMIN")
+                        // Perfil propio: cualquier usuario autenticado (CLIENTE o ADMIN); la identidad sale del token.
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/users/me").authenticated()
                         // Imágenes: cualquier método sobre /api/v1/imagenes exige ADMIN (además de @PreAuthorize)
                         .requestMatchers("/api/v1/imagenes", "/api/v1/imagenes/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
