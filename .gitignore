@@ -36,6 +36,7 @@ build/
 .env
 .env.*
 !.env.example
+!.env.production.example
 
 ### Imágenes subidas en local ###
 uploads/
