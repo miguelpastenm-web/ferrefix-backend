@@ -1,4 +1,12 @@
-# Oracle + la app. Las credenciales vienen de .env (ver .env.example).
+# Oracle + la app. Las credenciales vienen de .env (ver .env.example; en producción, .env.production.example).
+
+# Rotación de logs: sin esto crecen sin límite y llenan el disco del servidor.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   oracle:
     image: gvenzl/oracle-free:slim
@@ -19,6 +27,7 @@ services:
       timeout: 10s
       retries: 20
       start_period: 60s
+    logging: *logging
 
   app:
     build: .
@@ -46,6 +55,15 @@ services:
       - uploads_data:/app/uploads   # imágenes subidas: sobreviven a recrear el contenedor
     ports:
       - "8080:8080"
+    # /actuator/health es público y solo devuelve el estado (sin detalles); pasa a UP únicamente si la base responde.
+    # La imagen de ejecución (alpine) trae wget de BusyBox, no curl.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/actuator/health | grep -q UP"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+    logging: *logging
 
 volumes:
   oracle_data:
