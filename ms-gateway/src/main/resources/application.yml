@@ -1,0 +1,47 @@
+# Gateway de Ferrefix: único punto de entrada público (puerto 8080).
+# No guarda secretos: no valida JWT (lo hace cada servicio) ni se conecta a la base de datos.
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  application:
+    name: ms-gateway
+  cloud:
+    gateway:
+      server:
+        webflux:
+          httpclient:
+            connect-timeout: 5000     # ms para abrir la conexión con el servicio
+            response-timeout: 60s     # las subidas de imágenes (multipart de hasta 6 MB) pueden tardar
+          default-filters:
+            # El servicio recibe el Host público (el del gateway): así Swagger y las redirecciones usan la URL correcta.
+            - PreserveHostHeader
+            # Defensa extra: si un servicio llegara a responder con sus propias cabeceras CORS, se conserva solo la del
+            # gateway (la primera). Una Access-Control-Allow-Origin duplicada hace que el navegador rechace la respuesta.
+            - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_FIRST
+          routes:
+            # Etapa 1: todo el contrato público lo atiende ms-tienda. Al partir más servicios se agregan rutas aquí.
+            - id: ms-tienda
+              uri: ${TIENDA_URL:http://localhost:8082}
+              predicates:
+                - Path=/api/v1/**,/media/**,/v3/api-docs,/v3/api-docs/**,/swagger-ui.html,/swagger-ui/**
+
+# CORS vive SOLO aquí (ver CorsConfig). Orígenes del frontend separados por coma.
+ferrefix:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+
+# Actuator: únicamente health, y solo con el estado (sin detalles ni componentes).
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+      discovery:
+        enabled: false          # sin el índice /actuator que lista los endpoints
+  endpoint:
+    health:
+      show-details: never
+      show-components: never
+      probes:
+        enabled: false          # sin los grupos liveness/readiness: la respuesta es solo {"status":"UP"}

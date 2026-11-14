@@ -1,4 +1,5 @@
-# Oracle + la app. Las credenciales vienen de .env (ver .env.example; en producción, .env.production.example).
+# Oracle + ms-tienda + ms-gateway. Las credenciales vienen de .env (ver .env.example; en producción,
+# .env.production.example). Único puerto público: el 8080 del gateway. ms-tienda solo es alcanzable por la red interna.
 
 # Rotación de logs: sin esto crecen sin límite y llenan el disco del servidor.
 x-logging: &logging
@@ -29,14 +30,18 @@ services:
       start_period: 60s
     logging: *logging
 
-  app:
-    build: .
-    container_name: ferrefix_app
+  # API de la tienda (el monolito). NO publica puertos en el host: se entra siempre por ms-gateway.
+  ms-tienda:
+    build:
+      context: .
+      dockerfile: ms-tienda/Dockerfile
+    container_name: ferrefix_tienda
     restart: unless-stopped
     depends_on:
       oracle:
         condition: service_healthy
     environment:
+      SERVER_PORT: 8082
       DB_HOST: oracle
       DB_PORT: 1521
       DB_SERVICE: FREEPDB1
@@ -45,7 +50,6 @@ services:
       JWT_SECRET: ${JWT_SECRET:?Falta JWT_SECRET en .env}
       JWT_ACCESS_EXPIRATION_MS: ${JWT_ACCESS_EXPIRATION_MS:-900000}
       JWT_REFRESH_EXPIRATION_MS: ${JWT_REFRESH_EXPIRATION_MS:-604800000}
-      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@ferrefix.cl}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       CLIENT_EMAIL: ${CLIENT_EMAIL:-cliente@ferrefix.cl}
@@ -53,16 +57,41 @@ services:
       FERREFIX_UPLOAD_DIR: /app/uploads
     volumes:
       - uploads_data:/app/uploads   # imágenes subidas: sobreviven a recrear el contenedor
+    expose:
+      - "8082"   # solo red interna de Docker
+    # /actuator/health solo devuelve el estado (sin detalles); pasa a UP únicamente si la base responde.
+    # La imagen de ejecución (alpine) trae wget de BusyBox, no curl.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8082/actuator/health | grep -q UP"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+    logging: *logging
+
+  # Único punto de entrada: enruta /api/v1/**, /media/** y Swagger hacia ms-tienda, resuelve CORS y responde en JSON
+  # los errores de enrutado (404, 502, 504). No conoce secretos: no valida JWT ni usa la base de datos.
+  ms-gateway:
+    build:
+      context: .
+      dockerfile: ms-gateway/Dockerfile
+    container_name: ferrefix_gateway
+    restart: unless-stopped
+    depends_on:
+      ms-tienda:
+        condition: service_healthy
+    environment:
+      TIENDA_URL: http://ms-tienda:8082
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
     ports:
       - "8080:8080"
-    # /actuator/health es público y solo devuelve el estado (sin detalles); pasa a UP únicamente si la base responde.
-    # La imagen de ejecución (alpine) trae wget de BusyBox, no curl.
+    # Health PROPIO del gateway (público, solo el estado): indica que el gateway atiende, no el estado de ms-tienda.
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/actuator/health | grep -q UP"]
       interval: 30s
       timeout: 5s
       retries: 5
-      start_period: 90s
+      start_period: 30s
     logging: *logging
 
 volumes:
