@@ -20,6 +20,7 @@
 	<!-- Cada módulo es un servicio Spring Boot con su propio jar. Desde la raíz: ./mvnw test (todos)
 	     o ./mvnw -pl ms-tienda test (uno solo). -->
 	<modules>
+		<module>ms-gateway</module>
 		<module>ms-tienda</module>
 	</modules>
 
