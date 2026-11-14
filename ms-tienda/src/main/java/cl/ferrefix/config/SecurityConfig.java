@@ -63,7 +63,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/maquinas", "/api/v1/maquinas/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/media/**").permitAll()
                         .requestMatchers(HttpMethod.HEAD, "/media/**").permitAll()
-                        .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
+                        .requestMatchers("/v3/api-docs/**").permitAll()
                         .requestMatchers("/actuator/health").permitAll()
                         // Escritura de productos solo ADMIN, a nivel de URL: así el 401/403 se decide ANTES de validar el body.
                         // Se mantiene además @PreAuthorize en el controller (defensa en profundidad).

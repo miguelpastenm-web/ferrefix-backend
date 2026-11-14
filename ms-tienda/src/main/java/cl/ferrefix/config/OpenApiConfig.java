@@ -13,7 +13,7 @@ import org.springframework.context.annotation.Configuration;
  */
 @Configuration
 @OpenAPIDefinition(
-        info = @Info(title = "Ferrefix API", version = "1.0",
+        info = @Info(title = "Ferrefix API - Tienda", version = "1.0",
                 description = "API REST de Ferrefix: productos, máquinas, arriendos, órdenes, cotizaciones y autenticación JWT."),
         security = @SecurityRequirement(name = "bearerAuth"))
 @SecurityScheme(name = "bearerAuth", type = SecuritySchemeType.HTTP, scheme = "bearer", bearerFormat = "JWT")

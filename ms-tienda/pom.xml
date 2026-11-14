@@ -47,10 +47,10 @@
 			<artifactId>spring-boot-starter-actuator</artifactId>
 		</dependency>
 
-		<!-- Swagger UI incluido (el SGF solo traía el -api) -->
+		<!-- Solo el documento OpenAPI (/v3/api-docs): la interfaz Swagger UI la sirve el gateway -->
 		<dependency>
 			<groupId>org.springdoc</groupId>
-			<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+			<artifactId>springdoc-openapi-starter-webmvc-api</artifactId>
 			<version>${springdoc.version}</version>
 		</dependency>
 
