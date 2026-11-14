@@ -9,6 +9,7 @@ import cl.ferrefix.model.dto.*;
 import cl.ferrefix.model.mapper.UsuarioMapper;
 import cl.ferrefix.repository.UsuarioRepository;
 import cl.ferrefix.security.JwtService;
+import cl.ferrefix.security.JwtVerificador;
 import cl.ferrefix.service.impl.AuthServiceImpl;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
@@ -36,6 +37,7 @@ class AuthServiceTest {
     @Mock UsuarioRepository repo;
     @Mock PasswordEncoder encoder;
     @Mock JwtService jwt;
+    @Mock JwtVerificador verificador;
     @Spy UsuarioMapper mapper = new UsuarioMapper();
     @InjectMocks AuthServiceImpl service;
 
@@ -159,7 +161,7 @@ class AuthServiceTest {
         tokensStub();
         Claims claims = mock(Claims.class);
         when(claims.getSubject()).thenReturn("cliente@ferrefix.cl");
-        when(jwt.validarRefreshToken("RT")).thenReturn(claims);
+        when(verificador.validarRefreshToken("RT")).thenReturn(claims);
         when(repo.findByEmailIgnoreCase("cliente@ferrefix.cl")).thenReturn(Optional.of(usuario));
 
         TokenResponseDto r = service.refresh(new RefreshRequestDto("RT"));
@@ -169,7 +171,7 @@ class AuthServiceTest {
 
     @Test
     void refreshTokenInvalidoOVencido() {
-        when(jwt.validarRefreshToken("RT")).thenThrow(new JwtException("vencido"));
+        when(verificador.validarRefreshToken("RT")).thenThrow(new JwtException("vencido"));
         assertThrows(BadCredentialsException.class, () -> service.refresh(new RefreshRequestDto("RT")));
     }
 
@@ -178,7 +180,7 @@ class AuthServiceTest {
         usuario.setActivo(false);
         Claims claims = mock(Claims.class);
         when(claims.getSubject()).thenReturn("cliente@ferrefix.cl");
-        when(jwt.validarRefreshToken("RT")).thenReturn(claims);
+        when(verificador.validarRefreshToken("RT")).thenReturn(claims);
         when(repo.findByEmailIgnoreCase(any())).thenReturn(Optional.of(usuario));
         assertThrows(BadCredentialsException.class, () -> service.refresh(new RefreshRequestDto("RT")));
     }
@@ -196,5 +198,13 @@ class AuthServiceTest {
     void meUsuarioInexistente() {
         when(repo.findByEmailIgnoreCase(any())).thenReturn(Optional.empty());
         assertThrows(ResourceNotFoundException.class, () -> service.me("x@x.cl"));
+    }
+
+    @Test
+    void meDeUnaCuentaDesactivadaSeRechazaAunqueElTokenSigaVigente() {
+        // El filtro ya no consulta la base: quien sí la tiene (este servicio) rechaza la cuenta inactiva.
+        usuario.setActivo(false);
+        when(repo.findByEmailIgnoreCase("cliente@ferrefix.cl")).thenReturn(Optional.of(usuario));
+        assertThrows(BadCredentialsException.class, () -> service.me("cliente@ferrefix.cl"));
     }
 }

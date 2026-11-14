@@ -10,7 +10,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
-import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -48,8 +47,7 @@ class SeedMediaTest {
 
     @Autowired MockMvc mvc;
     @MockitoBean ImagenService imagenService;
-    @MockitoBean JwtService jwtService;
-    @MockitoBean UserDetailsService userDetailsService;
+    @MockitoBean JwtVerificador jwtVerificador;
 
     @Test
     void cadaImagenDelV3SeSirvePublicaComoWebp() throws Exception {

@@ -5,11 +5,9 @@ import cl.ferrefix.exception.ResourceNotFoundException;
 import cl.ferrefix.model.Cotizacion;
 import cl.ferrefix.model.EstadoCotizacion;
 import cl.ferrefix.model.TipoProyecto;
-import cl.ferrefix.model.Usuario;
 import cl.ferrefix.model.dto.*;
 import cl.ferrefix.model.mapper.CotizacionMapper;
 import cl.ferrefix.repository.CotizacionRepository;
-import cl.ferrefix.repository.UsuarioRepository;
 import cl.ferrefix.service.CotizacionService;
 import cl.ferrefix.util.RutValidator;
 import cl.ferrefix.util.Textos;
@@ -31,14 +29,13 @@ public class CotizacionServiceImpl implements CotizacionService {
     private static final Sort MAS_NUEVAS_PRIMERO = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
 
     private final CotizacionRepository cotizacionRepository;
-    private final UsuarioRepository usuarioRepository;
     private final CotizacionMapper mapper;
     private final Clock clock; // hora de Chile (ver ClockConfig)
 
     // ---------------------------------------------------------------- crear (público)
     @Override
     @Transactional
-    public CotizacionCreadaResponseDto crear(String emailAutenticado, CrearCotizacionRequestDto request) {
+    public CotizacionCreadaResponseDto crear(Long usuarioId, CrearCotizacionRequestDto request) {
         // Las anotaciones del DTO validan formato y largos; aquí van las reglas que dependen del contenido recortado.
         String nombre = request.nombre().trim();
         if (nombre.length() < 3) {
@@ -57,7 +54,7 @@ public class CotizacionServiceImpl implements CotizacionService {
 
         LocalDateTime ahora = LocalDateTime.now(clock);
         Cotizacion c = new Cotizacion();
-        c.setUsuarioId(usuarioDelToken(emailAutenticado));
+        c.setUsuarioId(usuarioId); // id que trae el token, o null si la pidió un visitante sin sesión
         c.setNombre(nombre);
         c.setRut(rut);
         c.setEmail(request.email().trim().toLowerCase(Locale.ROOT));
@@ -70,14 +67,6 @@ public class CotizacionServiceImpl implements CotizacionService {
         c.setCreatedAt(ahora);
         c.setUpdatedAt(ahora);
         return mapper.toCreada(cotizacionRepository.save(c));
-    }
-
-    /** Un token válido asocia el usuario; si el usuario ya no existe o está inactivo, no falla: queda anónima. */
-    private Long usuarioDelToken(String email) {
-        if (email == null) {
-            return null;
-        }
-        return usuarioRepository.findByEmailIgnoreCase(email).filter(Usuario::isActivo).map(Usuario::getId).orElse(null);
     }
 
     // ---------------------------------------------------------------- ADMIN

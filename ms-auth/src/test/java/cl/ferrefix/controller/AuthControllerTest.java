@@ -14,7 +14,6 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.BadCredentialsException;
-import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -22,6 +21,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -38,8 +38,7 @@ class AuthControllerTest {
 
     @Autowired MockMvc mvc;
     @MockitoBean AuthService authService;
-    @MockitoBean JwtService jwtService;
-    @MockitoBean UserDetailsService userDetailsService;
+    @MockitoBean JwtVerificador jwtVerificador;
 
     private static final UsuarioResponseDto USUARIO = new UsuarioResponseDto(1L, "15432890-4", "Juan", "cliente@ferrefix.cl",
             null, null, null, null, true, List.of("CLIENTE"), LocalDateTime.now());
@@ -169,7 +168,7 @@ class AuthControllerTest {
 
     @Test
     void meConTokenInvalidoDa401NoDa500() throws Exception {
-        when(jwtService.validarAccessToken("basura")).thenThrow(new JwtException("mal"));
+        when(jwtVerificador.validarAccessToken("basura")).thenThrow(new JwtException("mal"));
         mvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer basura"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.status").value(401));
@@ -182,5 +181,32 @@ class AuthControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.email").value("cliente@ferrefix.cl"))
                 .andExpect(jsonPath("$.passwordHash").doesNotExist());
+    }
+
+    @Test
+    void meConTokenValidoDelFiltroRealUsaElEmailDelToken() throws Exception {
+        when(jwtVerificador.validarAccessToken("TOKEN-VALIDO")).thenReturn(TokensDePrueba.claimsDeCliente());
+        when(authService.me("cliente@ferrefix.cl")).thenReturn(USUARIO);
+        mvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer TOKEN-VALIDO"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value("cliente@ferrefix.cl"));
+        verify(authService).me("cliente@ferrefix.cl");
+    }
+
+    @Test
+    void meDeUnaCuentaDesactivadaDa401Json() throws Exception {
+        when(jwtVerificador.validarAccessToken("TOKEN-VALIDO")).thenReturn(TokensDePrueba.claimsDeCliente());
+        when(authService.me("cliente@ferrefix.cl")).thenThrow(new BadCredentialsException("Token ausente, inválido o vencido"));
+        mvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer TOKEN-VALIDO"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.status").value(401));
+    }
+
+    @Test
+    void lasRutasDeOtrosServiciosNoExistenAqui() throws Exception {
+        // Productos, órdenes, etc. viven en ms-tienda: aquí no hay nada público fuera de login, register y refresh.
+        mvc.perform(get("/api/v1/productos")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/productos").with(user("cliente@ferrefix.cl").roles("CLIENTE")))
+                .andExpect(status().isNotFound());
     }
 }

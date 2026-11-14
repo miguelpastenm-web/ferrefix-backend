@@ -20,9 +20,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
-import org.springframework.security.core.userdetails.User;
-import org.springframework.security.core.userdetails.UserDetailsService;
-import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
@@ -35,13 +32,12 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.*;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 /**
- * El filtro JWT es el REAL (JwtService y UserDetailsService están mockeados): así los casos de token cubren el camino
- * completo filtro -> SecurityContext -> controller, sin depender de cómo se arme el principal.
+ * El filtro JWT es el REAL (solo el verificador está simulado): así los casos de token cubren el camino completo
+ * filtro -> SecurityContext -> controller, con la identidad armada a partir de los claims del token.
  */
 @WebMvcTest(CotizacionController.class)
 @Import({SecurityConfig.class, ApiExceptionHandler.class, JwtAuthenticationFilter.class,
@@ -50,11 +46,10 @@ class CotizacionControllerTest {
 
     @Autowired MockMvc mvc;
     @MockitoBean CotizacionService cotizacionService;
-    @MockitoBean JwtService jwtService;
-    @MockitoBean UserDetailsService userDetailsService;
+    @MockitoBean JwtVerificador jwtVerificador;
 
-    private static final RequestPostProcessor ADMIN = user("admin@ferrefix.cl").roles("ADMIN");
-    private static final RequestPostProcessor CLIENTE = user("cliente@ferrefix.cl").roles("CLIENTE");
+    private static final RequestPostProcessor ADMIN = TokensDePrueba.como(TokensDePrueba.ADMIN);
+    private static final RequestPostProcessor CLIENTE = TokensDePrueba.como(TokensDePrueba.CLIENTE);
 
     private static final String BODY = """
             {"nombre":"Constructora Los Andes SpA","rut":"11.111.111-1","email":"ventas@los-andes.cl",
@@ -71,13 +66,9 @@ class CotizacionControllerTest {
                 true, "PENDIENTE", null, LocalDateTime.now(), LocalDateTime.now());
     }
 
-    /** Hace que el JwtService REAL-mockeado acepte "TOKEN-VALIDO" como access token de cliente@ferrefix.cl. */
+    /** Hace que el verificador acepte "TOKEN-VALIDO" como access token del cliente de prueba (id 3). */
     private void tokenValidoDeCliente() {
-        Claims claims = mock(Claims.class);
-        when(claims.getSubject()).thenReturn("cliente@ferrefix.cl");
-        when(jwtService.validarAccessToken("TOKEN-VALIDO")).thenReturn(claims);
-        when(userDetailsService.loadUserByUsername("cliente@ferrefix.cl"))
-                .thenReturn(User.withUsername("cliente@ferrefix.cl").password("x").roles("CLIENTE").build());
+        when(jwtVerificador.validarAccessToken("TOKEN-VALIDO")).thenReturn(TokensDePrueba.claims(TokensDePrueba.CLIENTE));
     }
 
     // ---------------------------------------------------------------- POST público: token
@@ -99,67 +90,66 @@ class CotizacionControllerTest {
     @Test
     void tokenValidoConFiltroRealAsociaAlUsuario() throws Exception {
         tokenValidoDeCliente();
-        when(cotizacionService.crear(eq("cliente@ferrefix.cl"), any())).thenReturn(creada());
+        when(cotizacionService.crear(eq(3L), any())).thenReturn(creada());
 
         mvc.perform(post("/api/v1/cotizaciones").header("Authorization", "Bearer TOKEN-VALIDO")
                         .contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isCreated());
 
-        verify(cotizacionService).crear(eq("cliente@ferrefix.cl"), any());   // llegó el email del token, no null
-        verify(jwtService).validarAccessToken("TOKEN-VALIDO");
+        verify(cotizacionService).crear(eq(3L), any());   // llegó el id de usuario del token, no null
+        verify(jwtVerificador).validarAccessToken("TOKEN-VALIDO");
     }
 
     @Test
     void tokenInvalidoSeTrataComoAnonimoSin401() throws Exception {
-        when(jwtService.validarAccessToken("BASURA")).thenThrow(new MalformedJwtException("token mal formado"));
+        when(jwtVerificador.validarAccessToken("BASURA")).thenThrow(new MalformedJwtException("token mal formado"));
         when(cotizacionService.crear(isNull(), any())).thenReturn(creada());
 
         mvc.perform(post("/api/v1/cotizaciones").header("Authorization", "Bearer BASURA")
                         .contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isCreated());
 
-        verify(jwtService).validarAccessToken("BASURA");          // prueba que el filtro SÍ se ejecutó y rechazó el token
+        verify(jwtVerificador).validarAccessToken("BASURA");          // prueba que el filtro SÍ se ejecutó y rechazó el token
         verify(cotizacionService).crear(isNull(), any());
     }
 
     @Test
     void tokenVencidoSeTrataComoAnonimoSin401() throws Exception {
-        when(jwtService.validarAccessToken("TOKEN-VENCIDO")).thenThrow(new ExpiredJwtException(null, null, "JWT expired"));
+        when(jwtVerificador.validarAccessToken("TOKEN-VENCIDO")).thenThrow(new ExpiredJwtException(null, null, "JWT expired"));
         when(cotizacionService.crear(isNull(), any())).thenReturn(creada());
 
         mvc.perform(post("/api/v1/cotizaciones").header("Authorization", "Bearer TOKEN-VENCIDO")
                         .contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isCreated());
 
-        verify(jwtService).validarAccessToken("TOKEN-VENCIDO");   // el filtro se ejecutó y el token estaba vencido
+        verify(jwtVerificador).validarAccessToken("TOKEN-VENCIDO");   // el filtro se ejecutó y el token estaba vencido
         verify(cotizacionService).crear(isNull(), any());
     }
 
     @Test
-    void tokenValidoDeUnUsuarioQueYaNoExisteTambienQuedaAnonimo() throws Exception {
-        Claims claims = mock(Claims.class);
-        when(claims.getSubject()).thenReturn("borrado@ferrefix.cl");
-        when(jwtService.validarAccessToken("TOKEN-HUERFANO")).thenReturn(claims);
-        when(userDetailsService.loadUserByUsername("borrado@ferrefix.cl")).thenThrow(new UsernameNotFoundException("no existe"));
+    void tokenFirmadoPeroSinIdentidadCompletaTambienQuedaAnonimo() throws Exception {
+        // Token con firma válida pero sin uid, rut ni nombre (emitido antes de que existieran esos claims): el filtro
+        // no puede armar la identidad, así que la cotización se registra sin usuario en vez de fallar.
+        Claims claims = io.jsonwebtoken.Jwts.claims().subject("antiguo@ferrefix.cl").add("type", "access").build();
+        when(jwtVerificador.validarAccessToken("TOKEN-HUERFANO")).thenReturn(claims);
         when(cotizacionService.crear(isNull(), any())).thenReturn(creada());
 
         mvc.perform(post("/api/v1/cotizaciones").header("Authorization", "Bearer TOKEN-HUERFANO")
                         .contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isCreated());
 
-        verify(jwtService).validarAccessToken("TOKEN-HUERFANO");                      // el token se aceptó...
-        verify(userDetailsService).loadUserByUsername("borrado@ferrefix.cl");         // ...pero el usuario ya no existe
+        verify(jwtVerificador).validarAccessToken("TOKEN-HUERFANO");   // la firma se aceptó, pero faltaba la identidad
         verify(cotizacionService).crear(isNull(), any());
     }
 
     @Test
     void unRefreshTokenNoSirveParaAsociarYSeTrataComoAnonimo() throws Exception {
-        when(jwtService.validarAccessToken("REFRESH")).thenThrow(new io.jsonwebtoken.JwtException("Tipo de token inválido"));
+        when(jwtVerificador.validarAccessToken("REFRESH")).thenThrow(new io.jsonwebtoken.JwtException("Tipo de token inválido"));
         when(cotizacionService.crear(isNull(), any())).thenReturn(creada());
         mvc.perform(post("/api/v1/cotizaciones").header("Authorization", "Bearer REFRESH")
                         .contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isCreated());
-        verify(jwtService).validarAccessToken("REFRESH");         // el filtro lo intentó validar como access token y lo rechazó
+        verify(jwtVerificador).validarAccessToken("REFRESH");         // el filtro lo intentó validar como access token y lo rechazó
         verify(cotizacionService).crear(isNull(), any());
     }
 
@@ -168,8 +158,8 @@ class CotizacionControllerTest {
         when(cotizacionService.crear(any(), any())).thenReturn(creada());
         mvc.perform(post("/api/v1/cotizaciones").with(CLIENTE).contentType(MediaType.APPLICATION_JSON).content(BODY)).andExpect(status().isCreated());
         mvc.perform(post("/api/v1/cotizaciones").with(ADMIN).contentType(MediaType.APPLICATION_JSON).content(BODY)).andExpect(status().isCreated());
-        verify(cotizacionService).crear(eq("cliente@ferrefix.cl"), any());
-        verify(cotizacionService).crear(eq("admin@ferrefix.cl"), any());
+        verify(cotizacionService).crear(eq(3L), any());   // id del cliente, tomado de su token
+        verify(cotizacionService).crear(eq(1L), any());   // id del admin
     }
 
     // ---------------------------------------------------------------- POST público: validación

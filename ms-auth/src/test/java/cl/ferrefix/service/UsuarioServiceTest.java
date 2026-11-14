@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.authentication.BadCredentialsException;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
@@ -118,6 +119,15 @@ class UsuarioServiceTest {
         when(usuarioRepo.findByEmailIgnoreCase("fantasma@x.cl")).thenReturn(Optional.empty());
         assertThrows(ResourceNotFoundException.class,
                 () -> service.actualizarPerfil("fantasma@x.cl", new ActualizarPerfilRequestDto("Juan", null, null, null, null)));
+        verify(usuarioRepo, never()).save(any());
+    }
+
+    @Test
+    void unaCuentaDesactivadaNoPuedeEditarSuPerfilAunqueElTokenSigaVigente() {
+        usuario.setActivo(false);
+        when(usuarioRepo.findByEmailIgnoreCase("cliente@ferrefix.cl")).thenReturn(Optional.of(usuario));
+        assertThrows(BadCredentialsException.class,
+                () -> service.actualizarPerfil("cliente@ferrefix.cl", new ActualizarPerfilRequestDto("Juan", null, null, null, null)));
         verify(usuarioRepo, never()).save(any());
     }
 }

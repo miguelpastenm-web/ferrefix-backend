@@ -5,11 +5,9 @@ import cl.ferrefix.exception.ResourceNotFoundException;
 import cl.ferrefix.model.Cotizacion;
 import cl.ferrefix.model.EstadoCotizacion;
 import cl.ferrefix.model.TipoProyecto;
-import cl.ferrefix.model.Usuario;
 import cl.ferrefix.model.dto.*;
 import cl.ferrefix.model.mapper.CotizacionMapper;
 import cl.ferrefix.repository.CotizacionRepository;
-import cl.ferrefix.repository.UsuarioRepository;
 import cl.ferrefix.service.impl.CotizacionServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -36,13 +34,12 @@ class CotizacionServiceTest {
     static final Clock RELOJ = Clock.fixed(Instant.parse("2026-11-20T15:00:00Z"), ZoneId.of("America/Santiago")); // 12:00 en Santiago
 
     @Mock CotizacionRepository cotizacionRepo;
-    @Mock UsuarioRepository usuarioRepo;
 
     CotizacionServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        service = new CotizacionServiceImpl(cotizacionRepo, usuarioRepo, new CotizacionMapper(), RELOJ);
+        service = new CotizacionServiceImpl(cotizacionRepo, new CotizacionMapper(), RELOJ);
     }
 
     // ---------------------------------------------------------------- datos
@@ -61,14 +58,6 @@ class CotizacionServiceTest {
             c.setId(88L);
             return c;
         });
-    }
-
-    private Usuario usuario(boolean activo) {
-        Usuario u = new Usuario();
-        u.setId(3L);
-        u.setEmail("cliente@ferrefix.cl");
-        u.setActivo(activo);
-        return u;
     }
 
     private Cotizacion cotizacion(long id, EstadoCotizacion estado) {
@@ -115,7 +104,6 @@ class CotizacionServiceTest {
         assertEquals(88L, r.id());
         assertEquals("COT-000088", r.codigo());
         assertEquals("PENDIENTE", r.estado());
-        verifyNoInteractions(usuarioRepo);                              // sin token no se consulta ningún usuario
     }
 
     @Test
@@ -140,25 +128,23 @@ class CotizacionServiceTest {
     @Test
     void conTokenValidoSeAsociaElUsuarioSeaCualSeaSuRol() {
         stubGuardar();
-        when(usuarioRepo.findByEmailIgnoreCase("cliente@ferrefix.cl")).thenReturn(Optional.of(usuario(true)));
-        service.crear("cliente@ferrefix.cl", requestValida());
+        service.crear(3L, requestValida());   // el controller entrega el id que trae el token
         ArgumentCaptor<Cotizacion> cap = ArgumentCaptor.forClass(Cotizacion.class);
         verify(cotizacionRepo).save(cap.capture());
         assertEquals(3L, cap.getValue().getUsuarioId());
     }
 
     @Test
-    void siElUsuarioDelTokenYaNoExisteOEstaInactivoQuedaAnonimaSinFallar() {
+    void elIdDelTokenSeGuardaTalCualSinConsultarNingunaBaseDeUsuarios() {
+        // Antes se buscaba al usuario por email; ahora el id llega del token y no hay tabla de usuarios que consultar.
         stubGuardar();
-        when(usuarioRepo.findByEmailIgnoreCase("fantasma@x.cl")).thenReturn(Optional.empty());
-        when(usuarioRepo.findByEmailIgnoreCase("cliente@ferrefix.cl")).thenReturn(Optional.of(usuario(false)));
 
-        assertDoesNotThrow(() -> service.crear("fantasma@x.cl", requestValida()));
-        assertDoesNotThrow(() -> service.crear("cliente@ferrefix.cl", requestValida()));
+        assertDoesNotThrow(() -> service.crear(8L, requestValida()));
+        assertDoesNotThrow(() -> service.crear(1L, requestValida()));
 
         ArgumentCaptor<Cotizacion> cap = ArgumentCaptor.forClass(Cotizacion.class);
         verify(cotizacionRepo, times(2)).save(cap.capture());
-        assertTrue(cap.getAllValues().stream().allMatch(c -> c.getUsuarioId() == null));
+        assertEquals(List.of(8L, 1L), cap.getAllValues().stream().map(Cotizacion::getUsuarioId).toList());
     }
 
     // ---------------------------------------------------------------- crear: reglas

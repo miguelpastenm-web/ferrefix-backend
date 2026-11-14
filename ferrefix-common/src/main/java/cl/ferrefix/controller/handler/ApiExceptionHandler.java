@@ -30,11 +30,13 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.List;
 
+/** Traduce las excepciones a ErrorResponseDto. Lo comparten todos los servicios: mismo formato de error en toda la API. */
 @Slf4j
 @RestControllerAdvice
 public class ApiExceptionHandler {
 
-    @Value("${ferrefix.upload.max-bytes}")
+    /** Solo lo define el servicio que recibe archivos; el valor por defecto son los 6 MB del límite de imágenes. */
+    @Value("${ferrefix.upload.max-bytes:6291456}")
     private long maxUploadBytes;
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

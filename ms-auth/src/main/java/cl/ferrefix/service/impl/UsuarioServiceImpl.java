@@ -9,6 +9,7 @@ import cl.ferrefix.repository.UsuarioRepository;
 import cl.ferrefix.service.UsuarioService;
 import cl.ferrefix.util.Textos;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,6 +25,10 @@ public class UsuarioServiceImpl implements UsuarioService {
     public UsuarioResponseDto actualizarPerfil(String emailAutenticado, ActualizarPerfilRequestDto request) {
         Usuario u = usuarioRepository.findByEmailIgnoreCase(emailAutenticado)
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado"));
+        if (!u.isActivo()) {
+            // El token puede seguir vigente unos minutos tras desactivar la cuenta: aquí, que sí hay base, se rechaza.
+            throw new BadCredentialsException("Token ausente, inválido o vencido");
+        }
 
         // Campo a campo: se conservan id, rut, email, passwordHash, roles, activo y createdAt.
         u.setNombre(request.nombre().trim());

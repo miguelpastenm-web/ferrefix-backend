@@ -10,7 +10,7 @@ import cl.ferrefix.model.dto.OrdenResponseDto;
 import cl.ferrefix.model.mapper.OrdenMapper;
 import cl.ferrefix.repository.OrdenRepository;
 import cl.ferrefix.repository.ProductoRepository;
-import cl.ferrefix.repository.UsuarioRepository;
+import cl.ferrefix.security.UsuarioToken;
 import cl.ferrefix.service.OrdenService;
 import cl.ferrefix.service.PoliticaEnvio;
 import cl.ferrefix.util.Textos;
@@ -18,7 +18,6 @@ import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
-import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -45,7 +44,6 @@ public class OrdenServiceImpl implements OrdenService {
 
     private final OrdenRepository ordenRepository;
     private final ProductoRepository productoRepository;
-    private final UsuarioRepository usuarioRepository;
     private final OrdenMapper mapper;
     private final PoliticaEnvio politicaEnvio;
     private final Clock clock; // hora de Chile (ver ClockConfig)
@@ -53,7 +51,7 @@ public class OrdenServiceImpl implements OrdenService {
     // ---------------------------------------------------------------- crear
     @Override
     @Transactional
-    public OrdenResponseDto crear(String emailCliente, CrearOrdenRequestDto request) {
+    public OrdenResponseDto crear(UsuarioToken cliente, CrearOrdenRequestDto request) {
         // 1) Validaciones sin base de datos. Líneas ordenadas por productoId: ese es el orden de bloqueo global.
         List<LineaOrden> lineas = new ArrayList<>(request.items());
         lineas.sort(Comparator.comparing(LineaOrden::productoId));
@@ -62,9 +60,6 @@ public class OrdenServiceImpl implements OrdenService {
                 throw new BadRequestException("El producto " + lineas.get(i).productoId() + " está repetido en la orden");
             }
         }
-        Usuario cliente = usuarioRepository.findByEmailIgnoreCase(emailCliente)
-                .filter(Usuario::isActivo)
-                .orElseThrow(() -> new BadCredentialsException("Usuario no válido"));
 
         // 2) Existencia (solo ids, sin cargar entidades que luego quedarían desactualizadas por el UPDATE).
         List<Long> ids = lineas.stream().map(LineaOrden::productoId).toList();
@@ -92,10 +87,11 @@ public class OrdenServiceImpl implements OrdenService {
 
         LocalDateTime ahora = LocalDateTime.now(clock);
         Orden orden = new Orden();
-        orden.setUsuario(cliente);
-        orden.setClienteRut(cliente.getRut());
-        orden.setClienteNombre(cliente.getNombre());
-        orden.setClienteEmail(cliente.getEmail());
+        // El cliente sale del token (lo emitió ms-auth): aquí no se consulta la base de usuarios.
+        orden.setUsuarioId(cliente.id());
+        orden.setClienteRut(cliente.rut());
+        orden.setClienteNombre(cliente.nombre());
+        orden.setClienteEmail(cliente.email());
         orden.setTelefonoContacto(request.telefono().trim());
         orden.setDireccionEnvio(request.direccionEnvio().trim());
         orden.setRegionEnvio(request.region().trim());
@@ -147,19 +143,17 @@ public class OrdenServiceImpl implements OrdenService {
     // ---------------------------------------------------------------- lectura
     @Override
     @Transactional(readOnly = true)
-    public List<OrdenResponseDto> misOrdenes(String emailCliente) {
-        Usuario cliente = usuarioRepository.findByEmailIgnoreCase(emailCliente)
-                .orElseThrow(() -> new BadCredentialsException("Usuario no válido"));
-        return ordenRepository.findByUsuarioIdOrderByCreatedAtDescIdDesc(cliente.getId()).stream()
+    public List<OrdenResponseDto> misOrdenes(Long usuarioId) {
+        return ordenRepository.findByUsuarioIdOrderByCreatedAtDescIdDesc(usuarioId).stream()
                 .map(o -> mapper.toResponse(o, false)).toList();
     }
 
     @Override
     @Transactional(readOnly = true)
-    public OrdenResponseDto obtener(Long id, String email, boolean esAdmin) {
+    public OrdenResponseDto obtener(Long id, Long usuarioId, boolean esAdmin) {
         Orden o = ordenRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Orden no encontrada: " + id));
-        if (!esAdmin && !o.getUsuario().getEmail().equalsIgnoreCase(email)) {
+        if (!esAdmin && !o.getUsuarioId().equals(usuarioId)) {
             // Se responde igual que si no existiera: no se revela que ese id pertenece a otra persona.
             throw new ResourceNotFoundException("Orden no encontrada: " + id);
         }
@@ -184,7 +178,7 @@ public class OrdenServiceImpl implements OrdenService {
                 p.add(cb.equal(root.get("estado"), filtro));
             }
             if (usuarioId != null) {
-                p.add(cb.equal(root.get("usuario").get("id"), usuarioId));
+                p.add(cb.equal(root.get("usuarioId"), usuarioId));
             }
             return cb.and(p.toArray(new Predicate[0]));
         };

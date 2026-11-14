@@ -14,7 +14,6 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -29,7 +28,6 @@ import java.nio.file.Path;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -62,11 +60,10 @@ class ImagenControllerTest {
 
     @Autowired MockMvc mvc;
     @MockitoBean ImagenService imagenService;
-    @MockitoBean JwtService jwtService;
-    @MockitoBean UserDetailsService userDetailsService;
+    @MockitoBean JwtVerificador jwtVerificador;
 
-    private static final RequestPostProcessor ADMIN = user("admin@ferrefix.cl").roles("ADMIN");
-    private static final RequestPostProcessor CLIENTE = user("cliente@ferrefix.cl").roles("CLIENTE");
+    private static final RequestPostProcessor ADMIN = TokensDePrueba.como(TokensDePrueba.ADMIN);
+    private static final RequestPostProcessor CLIENTE = TokensDePrueba.como(TokensDePrueba.CLIENTE);
 
     private static MockMultipartFile archivo() {
         return new MockMultipartFile("archivo", "foto.webp", "image/webp", new byte[]{1, 2, 3});

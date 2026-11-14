@@ -18,7 +18,6 @@ import org.springframework.context.annotation.Import;
 import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.dao.QueryTimeoutException;
 import org.springframework.http.MediaType;
-import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
@@ -30,7 +29,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -41,11 +39,10 @@ class OrdenControllerTest {
 
     @Autowired MockMvc mvc;
     @MockitoBean OrdenService ordenService;
-    @MockitoBean JwtService jwtService;
-    @MockitoBean UserDetailsService userDetailsService;
+    @MockitoBean JwtVerificador jwtVerificador;
 
-    private static final RequestPostProcessor ADMIN = user("admin@ferrefix.cl").roles("ADMIN");
-    private static final RequestPostProcessor CLIENTE = user("cliente@ferrefix.cl").roles("CLIENTE");
+    private static final RequestPostProcessor ADMIN = TokensDePrueba.como(TokensDePrueba.ADMIN);
+    private static final RequestPostProcessor CLIENTE = TokensDePrueba.como(TokensDePrueba.CLIENTE);
 
     private static final String BODY = """
             {"items":[{"productoId":3,"cantidad":2},{"productoId":5,"cantidad":1}],"metodoPago":"WEBPAY_DEBITO",
@@ -65,7 +62,7 @@ class OrdenControllerTest {
     // ---------------------------------------------------------------- POST /ordenes
     @Test
     void clienteCompraYRecibe201() throws Exception {
-        when(ordenService.crear(eq("cliente@ferrefix.cl"), any())).thenReturn(orden(false));
+        when(ordenService.crear(eq(TokensDePrueba.CLIENTE), any())).thenReturn(orden(false));
         mvc.perform(post("/api/v1/ordenes").with(CLIENTE).contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.codigo").value("ORD-000501"))
@@ -107,7 +104,7 @@ class OrdenControllerTest {
                 .andExpect(status().isCreated());
 
         ArgumentCaptor<CrearOrdenRequestDto> dto = ArgumentCaptor.forClass(CrearOrdenRequestDto.class);
-        verify(ordenService).crear(eq("cliente@ferrefix.cl"), dto.capture());   // el cliente es el del token
+        verify(ordenService).crear(eq(TokensDePrueba.CLIENTE), dto.capture());   // el cliente es el del token
         assertEquals(2, dto.getValue().items().size());
         assertEquals(3L, dto.getValue().items().get(0).productoId());
         assertEquals(2, dto.getValue().items().get(0).cantidad());
@@ -191,7 +188,7 @@ class OrdenControllerTest {
     // ---------------------------------------------------------------- GET /ordenes/mis-ordenes
     @Test
     void misOrdenesSoloCliente() throws Exception {
-        when(ordenService.misOrdenes("cliente@ferrefix.cl")).thenReturn(List.of(orden(false)));
+        when(ordenService.misOrdenes(3L)).thenReturn(List.of(orden(false)));
         mvc.perform(get("/api/v1/ordenes/mis-ordenes")).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/v1/ordenes/mis-ordenes").with(ADMIN)).andExpect(status().isForbidden());
         mvc.perform(get("/api/v1/ordenes/mis-ordenes").with(CLIENTE))
@@ -202,8 +199,8 @@ class OrdenControllerTest {
     // ---------------------------------------------------------------- GET /ordenes/{id}
     @Test
     void obtenerRequiereTokenYPasaQuienPideYSuRol() throws Exception {
-        when(ordenService.obtener(501L, "cliente@ferrefix.cl", false)).thenReturn(orden(false));
-        when(ordenService.obtener(501L, "admin@ferrefix.cl", true)).thenReturn(orden(true));
+        when(ordenService.obtener(501L, 3L, false)).thenReturn(orden(false));
+        when(ordenService.obtener(501L, 1L, true)).thenReturn(orden(true));
 
         mvc.perform(get("/api/v1/ordenes/501")).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/v1/ordenes/501").with(CLIENTE))

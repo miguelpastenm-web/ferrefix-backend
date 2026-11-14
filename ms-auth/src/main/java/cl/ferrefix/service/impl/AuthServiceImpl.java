@@ -9,6 +9,7 @@ import cl.ferrefix.model.dto.*;
 import cl.ferrefix.model.mapper.UsuarioMapper;
 import cl.ferrefix.repository.UsuarioRepository;
 import cl.ferrefix.security.JwtService;
+import cl.ferrefix.security.JwtVerificador;
 import cl.ferrefix.service.AuthService;
 import cl.ferrefix.util.RutValidator;
 import io.jsonwebtoken.JwtException;
@@ -30,6 +31,7 @@ public class AuthServiceImpl implements AuthService {
     private final UsuarioRepository usuarioRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final JwtVerificador jwtVerificador;
     private final UsuarioMapper usuarioMapper;
 
     @Override
@@ -72,10 +74,12 @@ public class AuthServiceImpl implements AuthService {
     public TokenResponseDto refresh(RefreshRequestDto request) {
         String email;
         try {
-            email = jwtService.validarRefreshToken(request.refreshToken()).getSubject();
+            email = jwtVerificador.validarRefreshToken(request.refreshToken()).getSubject();
         } catch (JwtException | IllegalArgumentException e) {
             throw new BadCredentialsException("Refresh token inválido o vencido");
         }
+        // El refresh token solo identifica al usuario: nombre, RUT y ROLES se leen de la base en este momento, así
+        // el access token nuevo refleja los datos vigentes (un rol quitado o una cuenta desactivada dejan de valer aquí).
         Usuario usuario = usuarioRepository.findByEmailIgnoreCase(email)
                 .filter(Usuario::isActivo)
                 .orElseThrow(() -> new BadCredentialsException("Refresh token inválido o vencido"));
@@ -85,9 +89,13 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional(readOnly = true)
     public UsuarioResponseDto me(String email) {
-        return usuarioRepository.findByEmailIgnoreCase(email)
-                .map(usuarioMapper::toResponse)
+        Usuario usuario = usuarioRepository.findByEmailIgnoreCase(email)
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado"));
+        if (!usuario.isActivo()) {
+            // El token puede seguir vigente unos minutos tras desactivar la cuenta: aquí, que sí hay base, se rechaza.
+            throw new BadCredentialsException("Token ausente, inválido o vencido");
+        }
+        return usuarioMapper.toResponse(usuario);
     }
 
     private TokenResponseDto emitirTokens(Usuario usuario) {

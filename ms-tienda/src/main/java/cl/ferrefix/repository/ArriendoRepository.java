@@ -14,14 +14,14 @@ import java.util.Optional;
 
 public interface ArriendoRepository extends JpaRepository<Arriendo, Long>, JpaSpecificationExecutor<Arriendo> {
 
-    @EntityGraph(attributePaths = {"unidad", "unidad.maquina", "usuario"})
+    @EntityGraph(attributePaths = {"unidad", "unidad.maquina"})
     List<Arriendo> findByUsuarioIdOrderByCreatedAtDescIdDesc(Long usuarioId);
 
     @Override
-    @EntityGraph(attributePaths = {"unidad", "unidad.maquina", "usuario"})
+    @EntityGraph(attributePaths = {"unidad", "unidad.maquina"})
     List<Arriendo> findAll(Specification<Arriendo> spec, Sort sort);
 
-    @EntityGraph(attributePaths = {"unidad", "unidad.maquina", "usuario"})
+    @EntityGraph(attributePaths = {"unidad", "unidad.maquina"})
     @Query("select a from Arriendo a where a.id = :id")
     Optional<Arriendo> findDetalleById(@Param("id") Long id);
 

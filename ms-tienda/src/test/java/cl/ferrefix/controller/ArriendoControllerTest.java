@@ -15,7 +15,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
-import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
@@ -28,7 +27,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -39,11 +37,10 @@ class ArriendoControllerTest {
 
     @Autowired MockMvc mvc;
     @MockitoBean ArriendoService arriendoService;
-    @MockitoBean JwtService jwtService;
-    @MockitoBean UserDetailsService userDetailsService;
+    @MockitoBean JwtVerificador jwtVerificador;
 
-    private static final RequestPostProcessor ADMIN = user("admin@ferrefix.cl").roles("ADMIN");
-    private static final RequestPostProcessor CLIENTE = user("cliente@ferrefix.cl").roles("CLIENTE");
+    private static final RequestPostProcessor ADMIN = TokensDePrueba.como(TokensDePrueba.ADMIN);
+    private static final RequestPostProcessor CLIENTE = TokensDePrueba.como(TokensDePrueba.CLIENTE);
 
     private static final String BODY = """
             {"maquinaId":5,"diasArriendo":5,"fechaInicio":"2026-11-25","telefono":"+56 9 8765 4321",
@@ -61,7 +58,7 @@ class ArriendoControllerTest {
     // ---------------------------------------------------------------- POST /arriendos
     @Test
     void clienteArrendaYRecibe201() throws Exception {
-        when(arriendoService.crear(eq("cliente@ferrefix.cl"), any())).thenReturn(arriendo(false));
+        when(arriendoService.crear(eq(TokensDePrueba.CLIENTE), any())).thenReturn(arriendo(false));
         mvc.perform(post("/api/v1/arriendos").with(CLIENTE).contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.codigo").value("ARR-000077"))
@@ -98,7 +95,7 @@ class ArriendoControllerTest {
                 .andExpect(status().isCreated());
 
         ArgumentCaptor<CrearArriendoRequestDto> dto = ArgumentCaptor.forClass(CrearArriendoRequestDto.class);
-        verify(arriendoService).crear(eq("cliente@ferrefix.cl"), dto.capture());   // el cliente es el del token
+        verify(arriendoService).crear(eq(TokensDePrueba.CLIENTE), dto.capture());   // el cliente es el del token
         assertEquals(5L, dto.getValue().maquinaId());
         assertEquals(5, dto.getValue().diasArriendo());
     }
@@ -147,7 +144,7 @@ class ArriendoControllerTest {
     // ---------------------------------------------------------------- GET /arriendos/mis-arriendos
     @Test
     void misArriendosSoloCliente() throws Exception {
-        when(arriendoService.misArriendos("cliente@ferrefix.cl")).thenReturn(List.of(arriendo(false)));
+        when(arriendoService.misArriendos(3L)).thenReturn(List.of(arriendo(false)));
         mvc.perform(get("/api/v1/arriendos/mis-arriendos")).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/v1/arriendos/mis-arriendos").with(ADMIN)).andExpect(status().isForbidden());
         mvc.perform(get("/api/v1/arriendos/mis-arriendos").with(CLIENTE))
@@ -158,8 +155,8 @@ class ArriendoControllerTest {
     // ---------------------------------------------------------------- GET /arriendos/{id}
     @Test
     void obtenerRequiereTokenYPasaQuienPideYSuRol() throws Exception {
-        when(arriendoService.obtener(77L, "cliente@ferrefix.cl", false)).thenReturn(arriendo(false));
-        when(arriendoService.obtener(77L, "admin@ferrefix.cl", true)).thenReturn(arriendo(true));
+        when(arriendoService.obtener(77L, 3L, false)).thenReturn(arriendo(false));
+        when(arriendoService.obtener(77L, 1L, true)).thenReturn(arriendo(true));
 
         mvc.perform(get("/api/v1/arriendos/77")).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/v1/arriendos/77").with(CLIENTE))

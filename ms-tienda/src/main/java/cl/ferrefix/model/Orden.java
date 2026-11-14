@@ -21,9 +21,9 @@ public class Orden {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "USUARIO_ID", nullable = false, updatable = false)
-    private Usuario usuario;
+    /** Id del usuario en ms-auth. Columna simple: entre servicios no hay clave foránea ni entidad compartida. */
+    @Column(name = "USUARIO_ID", nullable = false, updatable = false)
+    private Long usuarioId;
 
     @Column(name = "CLIENTE_RUT", nullable = false, updatable = false, length = 12)
     private String clienteRut;

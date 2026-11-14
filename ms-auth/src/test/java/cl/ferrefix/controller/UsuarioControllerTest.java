@@ -7,7 +7,6 @@ import cl.ferrefix.model.dto.ActualizarPerfilRequestDto;
 import cl.ferrefix.model.dto.UsuarioResponseDto;
 import cl.ferrefix.security.*;
 import cl.ferrefix.service.UsuarioService;
-import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.MalformedJwtException;
 import org.junit.jupiter.api.Test;
@@ -16,8 +15,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
-import org.springframework.security.core.userdetails.User;
-import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
@@ -34,7 +31,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-/** El filtro JWT es el REAL (JwtService y UserDetailsService mockeados), como en CotizacionControllerTest. */
+/** El filtro JWT es el REAL (solo el verificador está simulado): la identidad sale de los claims del token. */
 @WebMvcTest(UsuarioController.class)
 @Import({SecurityConfig.class, ApiExceptionHandler.class, JwtAuthenticationFilter.class,
         RestAuthenticationEntryPoint.class, RestAccessDeniedHandler.class, SecurityErrorWriter.class})
@@ -42,8 +39,7 @@ class UsuarioControllerTest {
 
     @Autowired MockMvc mvc;
     @MockitoBean UsuarioService usuarioService;
-    @MockitoBean JwtService jwtService;
-    @MockitoBean UserDetailsService userDetailsService;
+    @MockitoBean JwtVerificador jwtVerificador;
 
     private static final RequestPostProcessor ADMIN = user("admin@ferrefix.cl").roles("ADMIN");
     private static final RequestPostProcessor CLIENTE = user("cliente@ferrefix.cl").roles("CLIENTE");
@@ -92,11 +88,7 @@ class UsuarioControllerTest {
 
     // ---------------------------------------------------------------- filtro JWT real
     private void tokenValidoDeCliente() {
-        Claims claims = mock(Claims.class);
-        when(claims.getSubject()).thenReturn("cliente@ferrefix.cl");
-        when(jwtService.validarAccessToken("TOKEN-VALIDO")).thenReturn(claims);
-        when(userDetailsService.loadUserByUsername("cliente@ferrefix.cl"))
-                .thenReturn(User.withUsername("cliente@ferrefix.cl").password("x").roles("CLIENTE").build());
+        when(jwtVerificador.validarAccessToken("TOKEN-VALIDO")).thenReturn(TokensDePrueba.claimsDeCliente());
     }
 
     @Test
@@ -108,20 +100,20 @@ class UsuarioControllerTest {
                         .contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isOk());
 
-        verify(jwtService).validarAccessToken("TOKEN-VALIDO");
+        verify(jwtVerificador).validarAccessToken("TOKEN-VALIDO");
         verify(usuarioService).actualizarPerfil(eq("cliente@ferrefix.cl"), any());
     }
 
     @Test
     void tokenInvalidoOVencidoDa401EnEstaRutaProtegida() throws Exception {
-        when(jwtService.validarAccessToken("BASURA")).thenThrow(new MalformedJwtException("mal formado"));
-        when(jwtService.validarAccessToken("VENCIDO")).thenThrow(new ExpiredJwtException(null, null, "JWT expired"));
+        when(jwtVerificador.validarAccessToken("BASURA")).thenThrow(new MalformedJwtException("mal formado"));
+        when(jwtVerificador.validarAccessToken("VENCIDO")).thenThrow(new ExpiredJwtException(null, null, "JWT expired"));
         for (String token : new String[]{"BASURA", "VENCIDO"}) {
             mvc.perform(put("/api/v1/users/me").header("Authorization", "Bearer " + token)
                             .contentType(MediaType.APPLICATION_JSON).content(BODY))
                     .andExpect(status().isUnauthorized())
                     .andExpect(jsonPath("$.status").value(401));
-            verify(jwtService).validarAccessToken(token);       // el filtro sí se ejecutó y rechazó el token
+            verify(jwtVerificador).validarAccessToken(token);       // el filtro sí se ejecutó y rechazó el token
         }
         verifyNoInteractions(usuarioService);
     }
