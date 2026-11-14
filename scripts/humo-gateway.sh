@@ -4,20 +4,26 @@
 #
 #  1. Gateway arriba: /actuator/health público y solo con el estado.
 #  2. Login de ADMIN y de CLIENTE.
+#  2b. Autenticación completa (ms-auth): registro de una cuenta nueva, login, /auth/me, renovación (refresh) y el
+#      token resultante aceptado por ms-tienda (que lo verifica con el secreto compartido, sin llamar a ms-auth).
+#      (SIN_REGISTRO=1 lo omite)
 #  3. Productos: el ADMIN crea un producto de prueba (stock 2); el listado público lo incluye.
 #  4. Orden: el CLIENTE compra 1 unidad (201, stock 1); el ADMIN la cancela (200, el stock vuelve a 2) y la elimina (204).
 #  5. Imagen: el ADMIN sube un PNG (multipart) y se descarga sin token desde /media/**.   (SIN_IMAGEN=1 lo omite)
 #  6. CORS: el preflight y la respuesta real traen Access-Control-Allow-Origin exactamente UNA vez.
 #  7. Errores del gateway en JSON: una ruta inexistente devuelve 404 con el formato de la API.
-#  8. Swagger alcanzable por el gateway.
+#  8. Swagger UI en el gateway, con el documento OpenAPI de cada servicio.
 #
 # Datos de prueba: el producto lleva SKU TESTHUMO-* y se elimina al terminar (aunque falle), junto con la orden.
 # La imagen subida NO se puede borrar por la API (no existe DELETE de imágenes): queda un PNG de 1x1 en uploads.
+# La cuenta registrada (humo-<fecha>@ferrefix.cl) tampoco se puede borrar por la API: queda en ms-auth. Es un CLIENTE
+# sin órdenes ni arriendos; usa SIN_REGISTRO=1 si no quieres crearla.
 # Credenciales: se leen de .env (ADMIN_EMAIL/ADMIN_PASSWORD y CLIENT_EMAIL/CLIENT_PASSWORD) y NUNCA se imprimen:
 # no viajan por argumentos de curl (se usan stdin y un archivo de cabeceras con permisos 600).
 #
 # Uso:  ./scripts/humo-gateway.sh                 (gateway en http://localhost:8080)
 #       SIN_IMAGEN=1 ./scripts/humo-gateway.sh    (no sube la imagen)
+#       SIN_REGISTRO=1 ./scripts/humo-gateway.sh  (no registra una cuenta nueva)
 #       ORIGEN=http://localhost:5173 ./scripts/humo-gateway.sh   (por defecto: el primer origen de CORS_ALLOWED_ORIGINS)
 # Solo corre contra localhost salvo ALLOW_REMOTE=1. Requiere: bash, curl, python3.
 # Código de salida: 0 si todo pasó, 1 si hubo fallas, 2 si no se pudo empezar.
@@ -76,6 +82,27 @@ verificar() { # verificar <descripción> <esperado> <obtenido>
 
 stock_producto() { http "$HDR_ADMIN" GET "/api/v1/productos/$1" >/dev/null; json "$TMP/last.json" stock; }
 
+# Lee un claim del payload de un JWT (sin verificar la firma: solo para inspeccionar lo que emitió ms-auth).
+# Las listas (roles) se imprimen separadas por coma.
+claim_jwt() { # claim_jwt <token> <claim>
+  TOKEN="$1" python3 -c '
+import base64, json, os, sys
+payload = os.environ["TOKEN"].split(".")[1]
+datos = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+valor = datos.get(sys.argv[1], "")
+print(",".join(str(x) for x in valor) if isinstance(valor, list) else valor)' "$2" 2>/dev/null
+}
+
+# Cabecera de autorización con un token ya conocido (archivo con permisos 600, como los demás).
+cabecera_con() { # cabecera_con <token> <archivo>
+  printf 'Authorization: Bearer %s\n' "$1" > "$2"; chmod 600 "$2"
+}
+
+# http con un cuerpo JSON que viaja por stdin (no aparece en los argumentos de curl).
+http_sin_sesion() { # http_sin_sesion <MÉTODO> <ruta> <json>
+  printf '%s' "$3" | curl -s -o "$TMP/last.json" -w '%{http_code}' -X "$1" "$BASE_URL$2" -H 'Content-Type: application/json' --data-binary @-
+}
+
 # Cuenta cuántas veces viene Access-Control-Allow-Origin en las cabeceras guardadas (debe ser exactamente 1).
 contar_acao() { grep -ci '^access-control-allow-origin:' "$1"; }
 valor_acao() { grep -i '^access-control-allow-origin:' "$1" | head -1 | cut -d: -f2- | tr -d ' \r'; }
@@ -108,6 +135,68 @@ login "$CLIENT_EMAIL" "$CLIENT_PASSWORD" "$HDR_CLIENTE" || { echo "No se pudo in
 echo "  OK   sesiones de ADMIN y CLIENTE iniciadas (credenciales no mostradas)"
 verificar "GET /api/v1/auth/me sin token (HTTP)" 401 "$(http "$HDR_NINGUNO" GET /api/v1/auth/me)"
 verificar "GET /api/v1/auth/me con token de CLIENTE (HTTP)" 200 "$(http "$HDR_CLIENTE" GET /api/v1/auth/me)"
+
+if [ "${SIN_REGISTRO:-0}" = "1" ]; then
+  echo; echo "== 2b. Autenticación completa (omitida: SIN_REGISTRO=1) =="
+else
+  echo; echo "== 2b. Autenticación completa por el gateway (ms-auth) =="
+  # Datos únicos por ejecución: correo con la fecha, RUT con dígito verificador válido y una clave aleatoria
+  # (se pasa por variables de entorno del proceso hijo y nunca se imprime).
+  eval "$(python3 -c '
+import json, secrets, time
+cuerpo = str(10_000_000 + secrets.randbelow(10_000_000))
+suma = sum(int(d) * (2 + i % 6) for i, d in enumerate(reversed(cuerpo)))
+dv = 11 - suma % 11
+dv = "0" if dv == 11 else "K" if dv == 10 else str(dv)
+print("HUMO_RUT=%s-%s" % (cuerpo, dv))
+print("HUMO_EMAIL=humo-%d@ferrefix.cl" % int(time.time()))
+print("HUMO_PASS=%s" % secrets.token_hex(12))')"
+  REGISTRO="$(HUMO_RUT="$HUMO_RUT" HUMO_EMAIL="$HUMO_EMAIL" HUMO_PASS="$HUMO_PASS" python3 -c '
+import json, os
+print(json.dumps({"rut": os.environ["HUMO_RUT"], "nombre": "Cuenta de humo", "email": os.environ["HUMO_EMAIL"],
+                  "password": os.environ["HUMO_PASS"], "telefono": "+56 9 8765 4321"}))')"
+  verificar "register: cuenta nueva (HTTP)" 201 "$(http_sin_sesion POST /api/v1/auth/register "$REGISTRO")"
+  verificar "register: devuelve accessToken y refreshToken" si "$([ -n "$(json "$TMP/last.json" accessToken)" ] && [ -n "$(json "$TMP/last.json" refreshToken)" ] && echo si || echo no)"
+  verificar "register: repetir el mismo correo (HTTP)" 409 "$(http_sin_sesion POST /api/v1/auth/register "$REGISTRO")"
+
+  LOGIN="$(HUMO_EMAIL="$HUMO_EMAIL" HUMO_PASS="$HUMO_PASS" python3 -c '
+import json, os
+print(json.dumps({"email": os.environ["HUMO_EMAIL"], "password": os.environ["HUMO_PASS"]}))')"
+  verificar "login con la cuenta nueva (HTTP)" 200 "$(http_sin_sesion POST /api/v1/auth/login "$LOGIN")"
+  ACCESS="$(json "$TMP/last.json" accessToken)"; REFRESH="$(json "$TMP/last.json" refreshToken)"
+  verificar "login con clave incorrecta (HTTP)" 401 "$(http_sin_sesion POST /api/v1/auth/login "$(HUMO_EMAIL="$HUMO_EMAIL" python3 -c 'import json,os; print(json.dumps({"email": os.environ["HUMO_EMAIL"], "password": "clave-incorrecta"}))')")"
+
+  echo "  -- el access token trae la identidad completa"
+  verificar "claim email (sub)" "$HUMO_EMAIL" "$(claim_jwt "$ACCESS" sub)"
+  verificar "claim rut" "$HUMO_RUT" "$(claim_jwt "$ACCESS" rut)"
+  verificar "claim nombre" "Cuenta de humo" "$(claim_jwt "$ACCESS" nombre)"
+  verificar "claim roles" CLIENTE "$(claim_jwt "$ACCESS" roles)"
+  verificar "claim type" access "$(claim_jwt "$ACCESS" type)"
+  verificar "el refresh token no lleva roles" "" "$(claim_jwt "$REFRESH" roles)"
+
+  HDR_HUMO="$TMP/humo.hdr"; cabecera_con "$ACCESS" "$HDR_HUMO"
+  verificar "GET /api/v1/auth/me (HTTP)" 200 "$(http "$HDR_HUMO" GET /api/v1/auth/me)"
+  verificar "me: email" "$HUMO_EMAIL" "$(json "$TMP/last.json" email)"
+  verificar "me: no expone la contraseña" "" "$(json "$TMP/last.json" passwordHash)"
+
+  echo "  -- ms-tienda acepta el token emitido por ms-auth (verifica la firma con el secreto compartido)"
+  verificar "GET /api/v1/ordenes/mis-ordenes como CLIENTE (HTTP)" 200 "$(http "$HDR_HUMO" GET /api/v1/ordenes/mis-ordenes)"
+  verificar "GET /api/v1/ordenes (solo ADMIN) como CLIENTE (HTTP)" 403 "$(http "$HDR_HUMO" GET /api/v1/ordenes)"
+
+  echo "  -- renovación: los datos se leen de la base en ese momento"
+  verificar "PUT /api/v1/users/me cambia el nombre (HTTP)" 200 "$(http "$HDR_HUMO" PUT /api/v1/users/me '{"nombre":"Cuenta de humo renovada"}')"
+  verificar "el access token anterior sigue con el nombre viejo (desfase de hasta 15 min)" "Cuenta de humo" "$(claim_jwt "$ACCESS" nombre)"
+  verificar "POST /api/v1/auth/refresh (HTTP)" 200 "$(http_sin_sesion POST /api/v1/auth/refresh "{\"refreshToken\":\"$REFRESH\"}")"
+  NUEVO_ACCESS="$(json "$TMP/last.json" accessToken)"
+  verificar "el access token nuevo trae el nombre actualizado" "Cuenta de humo renovada" "$(claim_jwt "$NUEVO_ACCESS" nombre)"
+  verificar "el access token nuevo conserva el rol" CLIENTE "$(claim_jwt "$NUEVO_ACCESS" roles)"
+  cabecera_con "$NUEVO_ACCESS" "$HDR_HUMO"
+  verificar "GET /api/v1/auth/me con el token renovado (HTTP)" 200 "$(http "$HDR_HUMO" GET /api/v1/auth/me)"
+  verificar "refresh con un access token (HTTP)" 401 "$(http_sin_sesion POST /api/v1/auth/refresh "{\"refreshToken\":\"$ACCESS\"}")"
+  verificar "refresh con basura (HTTP)" 401 "$(http_sin_sesion POST /api/v1/auth/refresh '{"refreshToken":"no.es.un.jwt"}')"
+  cabecera_con "$REFRESH" "$HDR_HUMO"
+  verificar "un refresh token no sirve como access token (HTTP)" 401 "$(http "$HDR_HUMO" GET /api/v1/auth/me)"
+fi
 
 echo; echo "== 3. Productos =="
 SKU="TESTHUMO-$(date +%s)"
@@ -183,9 +272,20 @@ verificar "cuerpo JSON: status" 404 "$(json "$TMP/last.json" status)"
 verificar "cuerpo JSON: path" /ruta-que-no-existe "$(json "$TMP/last.json" path)"
 verificar "/actuator/env no está expuesto (HTTP)" 404 "$(http "$HDR_NINGUNO" GET /actuator/env)"
 
-echo; echo "== 8. Swagger por el gateway =="
-verificar "GET /v3/api-docs (HTTP)" 200 "$(http "$HDR_NINGUNO" GET /v3/api-docs)"
+echo; echo "== 8. Swagger UI en el gateway, con un documento por servicio =="
 verificar "GET /swagger-ui.html siguiendo la redirección (HTTP)" 200 "$(curl -s -L -o /dev/null -w '%{http_code}' "$BASE_URL/swagger-ui.html")"
+verificar "GET /v3/api-docs/swagger-config (HTTP)" 200 "$(http "$HDR_NINGUNO" GET /v3/api-docs/swagger-config)"
+verificar "el selector lista ms-auth y ms-tienda" "ms-auth,ms-tienda" "$(python3 -c '
+import json, sys
+print(",".join(sorted(u["name"] for u in json.load(open(sys.argv[1])).get("urls", []))))' "$TMP/last.json" 2>/dev/null)"
+verificar "GET /api-docs/ms-auth (HTTP)" 200 "$(http "$HDR_NINGUNO" GET /api-docs/ms-auth)"
+verificar "ms-auth documenta login, register, refresh, auth/me y users/me" 5 "$(python3 -c '
+import json, sys
+print(len(json.load(open(sys.argv[1])).get("paths", {})))' "$TMP/last.json" 2>/dev/null)"
+verificar "GET /api-docs/ms-tienda (HTTP)" 200 "$(http "$HDR_NINGUNO" GET /api-docs/ms-tienda)"
+verificar "ms-tienda documenta /api/v1/productos" si "$(python3 -c '
+import json, sys
+print("si" if "/api/v1/productos" in json.load(open(sys.argv[1])).get("paths", {}) else "no")' "$TMP/last.json" 2>/dev/null)"
 
 echo
 if [ "$FALLAS" -eq 0 ]; then echo "RESULTADO: todo OK a través del gateway."; else echo "RESULTADO: $FALLAS verificación(es) fallaron."; fi
