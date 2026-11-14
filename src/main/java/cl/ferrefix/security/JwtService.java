@@ -15,7 +15,7 @@ import java.util.Date;
 import java.util.List;
 
 /**
- * Genera y verifica JWT firmados con HS256.
+ * Genera y verifica JWT firmados con HS512 (el secreto debe medir al menos 64 bytes UTF-8).
  * Hay dos tipos de token, distinguidos por el claim "type":
  *  - access  (corto): lleva roles y se envía en cada petición.
  *  - refresh (largo): solo sirve en /auth/refresh para pedir un par nuevo.
@@ -26,7 +26,7 @@ public class JwtService {
     public static final String CLAIM_TYPE = "type";
     public static final String TYPE_ACCESS = "access";
     public static final String TYPE_REFRESH = "refresh";
-    static final int MIN_SECRET_BYTES = 32;
+    static final int MIN_SECRET_BYTES = 64;
 
     private final SecretKey key;
     private final long accessExpirationMs;
@@ -38,7 +38,8 @@ public class JwtService {
         byte[] bytes = secret == null ? new byte[0] : secret.getBytes(StandardCharsets.UTF_8);
         if (bytes.length < MIN_SECRET_BYTES) {
             throw new IllegalStateException(
-                    "JWT_SECRET debe tener al menos " + MIN_SECRET_BYTES + " caracteres. Generar con: openssl rand -base64 48");
+                    "JWT_SECRET debe medir al menos " + MIN_SECRET_BYTES + " bytes (UTF-8). "
+                            + "Generar con: openssl rand -hex 64 (produce 128 caracteres hexadecimales = 128 bytes)");
         }
         this.key = Keys.hmacShaKeyFor(bytes);
         this.accessExpirationMs = accessExpirationMs;
@@ -78,7 +79,7 @@ public class JwtService {
                 .claim(CLAIM_TYPE, tipo)
                 .issuedAt(new Date(ahora))
                 .expiration(new Date(ahora + duracionMs))
-                .signWith(key);
+                .signWith(key, Jwts.SIG.HS512);
     }
 
     private Claims validar(String token, String tipoEsperado) {
