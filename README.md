@@ -15,7 +15,7 @@ docker compose up -d --build
 - Swagger UI: http://localhost:8080/swagger-ui.html
 - Health: http://localhost:8080/actuator/health
 
-`JWT_SECRET` (mín. 32 caracteres): `openssl rand -base64 48`.
+`JWT_SECRET` (mín. 64 **bytes** UTF-8; los tokens se firman con HS512): `openssl rand -hex 64`, que produce 128 caracteres hexadecimales (128 bytes). Si tu `.env` tiene un secreto más corto, la app no arrancará hasta que lo regeneres.
 Sin `.env` completo la app no arranca (no hay credenciales por defecto).
 
 ## Variables de entorno
