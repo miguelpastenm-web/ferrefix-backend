@@ -18,16 +18,16 @@ class EnrutadoTest extends GatewayTestBase {
 
     @ParameterizedTest
     @ValueSource(strings = {
-            "/api/v1/productos", "/api/v1/productos/15", "/api/v1/auth/me", "/api/v1/maquinas/3/unidades",
-            "/api/v1/ordenes/mis-ordenes", "/api/v1/arriendos", "/api/v1/cotizaciones", "/api/v1/users/me",
-            "/media/productos/taladro-percutor.webp", "/v3/api-docs", "/v3/api-docs/swagger-config",
-            "/swagger-ui.html", "/swagger-ui/index.html"})
-    void lasRutasPublicasLleganAlServicio(String ruta) {
+            "/api/v1/productos", "/api/v1/productos/15", "/api/v1/maquinas/3/unidades",
+            "/api/v1/ordenes/mis-ordenes", "/api/v1/arriendos", "/api/v1/cotizaciones",
+            "/media/productos/taladro-percutor.webp"})
+    void lasRutasDeLaTiendaLleganAMsTienda(String ruta) {
         cliente.get().uri(ruta).exchange()
                 .expectStatus().isOk()
-                .expectBody().jsonPath("$.ruta").isEqualTo(ruta);
+                .expectBody().jsonPath("$.servicio").isEqualTo("ms-tienda").jsonPath("$.ruta").isEqualTo(ruta);
         assertEquals("GET", servicio.ultima().metodo());
         assertEquals(ruta, servicio.ultima().uri());
+        assertTrue(auth.recibidas().isEmpty(), "Estas rutas no son de ms-auth");
     }
 
     @Test
@@ -76,8 +76,10 @@ class EnrutadoTest extends GatewayTestBase {
     @Test
     void elServicioRecibeElHostPublicoDelGateway() {
         // Swagger arma la URL del servidor con el Host: debe ser el del gateway, no el interno (ms-tienda:8082).
-        cliente.get().uri("/v3/api-docs").exchange().expectStatus().isOk();
+        cliente.get().uri("/api-docs/ms-tienda").exchange().expectStatus().isOk();
         assertEquals("localhost:" + puerto, servicio.ultima().cabeceras().get("Host"));
+        cliente.get().uri("/api-docs/ms-auth").exchange().expectStatus().isOk();
+        assertEquals("localhost:" + puerto, auth.ultima().cabeceras().get("Host"));
     }
 
     @Test
