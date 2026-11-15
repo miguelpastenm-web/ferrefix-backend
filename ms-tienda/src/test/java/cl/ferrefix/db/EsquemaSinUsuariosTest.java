@@ -20,9 +20,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class EsquemaSinUsuariosTest {
 
-    static final String[] MIGRACIONES = {
-            "V2__productos.sql", "V3__productos_iniciales.sql", "V4__maquinas_y_arriendos.sql",
-            "V5__maquinas_iniciales.sql", "V6__ordenes_y_cotizaciones.sql"};
+    static final String[] MIGRACIONES = {"V1__productos.sql", "V2__productos_iniciales.sql", "V3__ordenes.sql"};
 
     static final Map<String, String> sql = new LinkedHashMap<>();
 
@@ -63,35 +61,36 @@ class EsquemaSinUsuariosTest {
     }
 
     @Test
-    void ordenesYArriendosConservanElIdDelUsuarioComoColumnaObligatoriaEIndexada() {
-        assertTrue(Pattern.compile("USUARIO_ID\\s+NUMBER\\(19,0\\)\\s+NOT NULL").matcher(tabla("V6__ordenes_y_cotizaciones.sql", "ORDENES")).find());
-        assertTrue(Pattern.compile("USUARIO_ID\\s+NUMBER\\(19,0\\)\\s+NOT NULL").matcher(tabla("V4__maquinas_y_arriendos.sql", "ARRIENDOS")).find());
-        // "Mis órdenes" y "mis arriendos" filtran por esta columna: debe seguir indexada aunque ya no sea FK.
-        assertTrue(sql.get("V6__ordenes_y_cotizaciones.sql").contains("CREATE INDEX IX_ORDENES_USUARIO ON ORDENES (USUARIO_ID, CREATED_AT)"));
-        assertTrue(sql.get("V4__maquinas_y_arriendos.sql").contains("CREATE INDEX IX_ARRIENDOS_USUARIO ON ARRIENDOS (USUARIO_ID)"));
-        assertTrue(sql.get("V6__ordenes_y_cotizaciones.sql").contains("CREATE INDEX IX_COTIZACIONES_USUARIO ON COTIZACIONES (USUARIO_ID)"));
+    void lasOrdenesConservanElIdDelUsuarioComoColumnaObligatoriaEIndexada() {
+        assertTrue(Pattern.compile("USUARIO_ID\\s+NUMBER\\(19,0\\)\\s+NOT NULL").matcher(tabla("V3__ordenes.sql", "ORDENES")).find());
+        // "Mis órdenes" filtra por esta columna: debe seguir indexada aunque ya no sea FK.
+        assertTrue(sql.get("V3__ordenes.sql").contains("CREATE INDEX IX_ORDENES_USUARIO ON ORDENES (USUARIO_ID, CREATED_AT)"));
     }
 
     @Test
-    void arriendosGuardaLaCopiaDelClienteConLosMismosLargosQueOrdenes() {
-        String arriendos = tabla("V4__maquinas_y_arriendos.sql", "ARRIENDOS");
-        String ordenes = tabla("V6__ordenes_y_cotizaciones.sql", "ORDENES");
+    void lasOrdenesGuardanLaCopiaDelClienteTomadaDelToken() {
+        String ordenes = tabla("V3__ordenes.sql", "ORDENES");
         for (String columna : new String[]{
                 "CLIENTE_RUT\\s+VARCHAR2\\(12 CHAR\\)\\s+NOT NULL",
                 "CLIENTE_NOMBRE\\s+VARCHAR2\\(120 CHAR\\)\\s+NOT NULL",
                 "CLIENTE_EMAIL\\s+VARCHAR2\\(120 CHAR\\)\\s+NOT NULL"}) {
-            assertTrue(Pattern.compile(columna).matcher(arriendos).find(), "Falta en ARRIENDOS: " + columna);
             assertTrue(Pattern.compile(columna).matcher(ordenes).find(), "Falta en ORDENES: " + columna);
         }
     }
 
     @Test
+    void elEsquemaDeLaTiendaNoTieneLasTablasDeArriendosNiDeCotizaciones() {
+        // Máquinas, arriendos y cotizaciones son de ms-arriendos (otro esquema).
+        sql.forEach((archivo, contenido) -> assertFalse(
+                Pattern.compile("CREATE\\s+TABLE\\s+(MAQUINA|ARRIENDO|COTIZACION)").matcher(contenido).find(),
+                archivo + " no puede crear tablas de ms-arriendos"));
+    }
+
+    @Test
     void lasClavesForaneasQueQuedanSonTodasInternasDelServicio() {
-        // Dentro del mismo esquema las FK se mantienen: unidad -> máquina, arriendo -> unidad, ítem -> orden y producto.
-        String v4 = sql.get("V4__maquinas_y_arriendos.sql");
-        String v6 = sql.get("V6__ordenes_y_cotizaciones.sql");
-        assertTrue(v4.contains("CONSTRAINT FK_ARRIENDOS_UNIDAD FOREIGN KEY (UNIDAD_ID) REFERENCES MAQUINA_UNIDADES (ID)"));
-        assertTrue(v6.contains("CONSTRAINT FK_ORDEN_ITEMS_ORDEN FOREIGN KEY (ORDEN_ID) REFERENCES ORDENES (ID) ON DELETE CASCADE"));
-        assertTrue(v6.contains("CONSTRAINT FK_ORDEN_ITEMS_PRODUCTO FOREIGN KEY (PRODUCTO_ID) REFERENCES PRODUCTOS (ID) ON DELETE SET NULL"));
+        // Dentro del mismo esquema las FK se mantienen: ítem -> orden y producto.
+        String v3 = sql.get("V3__ordenes.sql");
+        assertTrue(v3.contains("CONSTRAINT FK_ORDEN_ITEMS_ORDEN FOREIGN KEY (ORDEN_ID) REFERENCES ORDENES (ID) ON DELETE CASCADE"));
+        assertTrue(v3.contains("CONSTRAINT FK_ORDEN_ITEMS_PRODUCTO FOREIGN KEY (PRODUCTO_ID) REFERENCES PRODUCTOS (ID) ON DELETE SET NULL"));
     }
 }

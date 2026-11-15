@@ -14,7 +14,7 @@ import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** Valida el V3 generado contra las reglas del backend, sin necesitar Oracle. */
+/** Valida el V2 generado contra las reglas del backend, sin necesitar Oracle. */
 class SeedProductosTest {
 
     static String sql;
@@ -88,7 +88,7 @@ class SeedProductosTest {
                 enDisco.add("/media/" + ruta.substring(ruta.indexOf("seed-media/") + "seed-media/".length()));
             }
         }
-        assertEquals(new TreeSet<>(urls), enDisco, "seed-media/productos|ofertas y V3 no coinciden");
+        assertEquals(new TreeSet<>(urls), enDisco, "seed-media/productos|ofertas y V2 no coinciden");
     }
 
     @Test

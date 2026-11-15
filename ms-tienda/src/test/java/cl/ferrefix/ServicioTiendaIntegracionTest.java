@@ -1,10 +1,6 @@
 package cl.ferrefix;
 
 import cl.ferrefix.model.Orden;
-import cl.ferrefix.repository.ArriendoRepository;
-import cl.ferrefix.repository.CotizacionRepository;
-import cl.ferrefix.repository.MaquinaRepository;
-import cl.ferrefix.repository.MaquinaUnidadRepository;
 import cl.ferrefix.repository.OrdenRepository;
 import cl.ferrefix.repository.ProductoRepository;
 import cl.ferrefix.security.JwtVerificador;
@@ -71,10 +67,6 @@ class ServicioTiendaIntegracionTest {
     @Autowired ObjectMapper json;
     @MockitoBean ProductoRepository productoRepo;
     @MockitoBean OrdenRepository ordenRepo;
-    @MockitoBean ArriendoRepository arriendoRepo;
-    @MockitoBean CotizacionRepository cotizacionRepo;
-    @MockitoBean MaquinaRepository maquinaRepo;
-    @MockitoBean MaquinaUnidadRepository unidadRepo;
     @MockitoBean PlatformTransactionManager transacciones;
 
     /** Access token como los que emite ms-auth: mismos claims, firmado con HS512. */
@@ -165,15 +157,27 @@ class ServicioTiendaIntegracionTest {
     }
 
     @Test
-    void elDocumentoOpenApiNoIncluyeAutenticacionNiPerfil() throws Exception {
+    void elDocumentoOpenApiSoloDescribeProductosOrdenesEImagenes() throws Exception {
         JsonNode rutas = json.readTree(mvc.perform(get("/v3/api-docs")).andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString()).get("paths");
-        for (String ruta : new String[]{"/api/v1/productos", "/api/v1/ordenes", "/api/v1/arriendos", "/api/v1/maquinas",
-                "/api/v1/cotizaciones", "/api/v1/imagenes"}) {
+        for (String ruta : new String[]{"/api/v1/productos", "/api/v1/ordenes", "/api/v1/imagenes"}) {
             assertTrue(rutas.has(ruta), "Falta en el documento: " + ruta);
         }
-        rutas.propertyNames().forEach(ruta -> assertFalse(ruta.startsWith("/api/v1/auth") || ruta.startsWith("/api/v1/users"),
-                "Esta ruta pertenece a ms-auth: " + ruta));
+        rutas.propertyNames().forEach(ruta -> assertFalse(
+                ruta.startsWith("/api/v1/auth") || ruta.startsWith("/api/v1/users") || ruta.startsWith("/api/v1/maquinas")
+                        || ruta.startsWith("/api/v1/arriendos") || ruta.startsWith("/api/v1/cotizaciones"),
+                "Esta ruta pertenece a otro servicio: " + ruta));
+    }
+
+    @Test
+    void lasRutasDeArriendosCotizacionesYMaquinasYaNoSonDeEsteServicio() throws Exception {
+        // Viven en ms-arriendos: aquí no existen (ni siquiera la lectura pública de máquinas ni crear cotizaciones).
+        mvc.perform(get("/api/v1/maquinas")).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/v1/cotizaciones").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isUnauthorized());
+        for (String ruta : new String[]{"/api/v1/maquinas", "/api/v1/arriendos/mis-arriendos", "/api/v1/cotizaciones"}) {
+            mvc.perform(get(ruta).header("Authorization", bearer(DE_ADMIN))).andExpect(status().isNotFound());
+        }
     }
 
     @Test

@@ -11,7 +11,7 @@
 
 	<artifactId>ferrefix-common</artifactId>
 	<name>ferrefix-common</name>
-	<description>Código compartido por los servicios de Ferrefix: verificación del JWT, formato de error y utilidades</description>
+	<description>Código compartido por los servicios de Ferrefix: verificación del JWT, formato de error, reloj y utilidades</description>
 
 	<!-- Es una librería (jar normal), no un servicio: no lleva spring-boot-maven-plugin ni clase main. -->
 	<dependencies>
@@ -27,6 +27,11 @@
 		<dependency>
 			<groupId>org.springframework</groupId>
 			<artifactId>spring-tx</artifactId>
+		</dependency>
+		<!-- Sort, que usa SortUtil para ordenar listados -->
+		<dependency>
+			<groupId>org.springframework.data</groupId>
+			<artifactId>spring-data-commons</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>jakarta.persistence</groupId>

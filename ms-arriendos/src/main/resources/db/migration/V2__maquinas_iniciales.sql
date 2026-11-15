@@ -1,6 +1,6 @@
--- V5: máquinas iniciales de Ferrefix (las 4 del catálogo de arriendo de ferrefix-ui), con 2 unidades cada una.
+-- V2: máquinas iniciales de Ferrefix (las 4 del catálogo de arriendo de ferrefix-ui), con 2 unidades cada una.
 -- GENERADO desde ferrefix-ui/src/data/maquinarias.js: no editar a mano.
--- NO MODIFICAR este archivo una vez aplicado (Flyway valida el checksum): los cambios van en una V6.
+-- NO MODIFICAR este archivo una vez aplicado (Flyway valida el checksum): los cambios van en una V3.
 --
 -- Idempotente: si un CODIGO ya existe NO se toca (ni se pisa ni se borra nada). Las especificaciones solo se cargan
 -- en modelos que aún no tienen ninguna, y cada unidad solo se crea si su código no existe y el modelo está DISPONIBLE

@@ -50,7 +50,7 @@ class SeedMediaTest {
     @MockitoBean JwtVerificador jwtVerificador;
 
     @Test
-    void cadaImagenDelV3SeSirvePublicaComoWebp() throws Exception {
+    void cadaImagenDeProductosDelV2SeSirvePublicaComoWebp() throws Exception {
         List<String> urls = SeedSql.urlsDeImagen(SeedSql.productos(SeedSql.leer()));
         assertEquals(26, urls.size());
         for (String url : urls) {
@@ -62,8 +62,9 @@ class SeedMediaTest {
     }
 
     @Test
-    void cadaImagenDeMaquinasDelV5SeSirvePublicaComoWebp() throws Exception {
-        List<String> urls = SeedMaquinasSql.modelos(SeedMaquinasSql.leer()).stream().map(SeedMaquinasSql.Modelo::imagen).toList();
+    void cadaImagenDeMaquinasDelContratoSeSirvePublicaComoWebp() throws Exception {
+        // Las URLs las siembra ms-arriendos, pero los archivos viven y se sirven aquí (ver ContratoImagenesMaquinas).
+        List<String> urls = ContratoImagenesMaquinas.URLS;
         assertEquals(4, urls.size());
         for (String url : urls) {
             mvc.perform(get(url))
