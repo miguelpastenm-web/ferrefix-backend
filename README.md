@@ -101,18 +101,17 @@ docker compose up -d --build --remove-orphans   # recrea Oracle, los esquemas y 
 
 Los productos iniciales los siembra Flyway al arrancar `ms-tienda`; las máquinas iniciales, al arrancar `ms-arriendos`; y las cuentas de ADMIN y CLIENTE, `ms-auth`.
 
-### Oracle en otra máquina
+### Despliegue en 3 máquinas
 
-`DB_HOST`, `DB_PORT` y `DB_SERVICE` indican dónde está la base. Por defecto (sin definirlas) los servicios usan el contenedor `oracle` de este compose; fuera de Docker usan `localhost:1521`. Para una base en otra máquina, defínelas en `.env` y levanta solo los servicios:
+Para producción con el front, el backend y Oracle en máquinas separadas hay dos archivos propios, sin tocar el de desarrollo:
 
-```bash
-# .env
-DB_HOST=10.0.2.15
-DB_PORT=1521
-docker compose up -d --build --no-deps ms-auth ms-tienda ms-arriendos ms-gateway   # sin --no-deps también levantaría el contenedor oracle
-```
+- `docker-compose.backend.yml`: gateway, `ms-auth`, `ms-tienda` y `ms-arriendos`, sin Oracle. `DB_HOST` (la IP privada de la máquina Oracle) es obligatorio.
+- `docker-compose.oracle.yml`: solo Oracle, con los tres esquemas, su volumen persistente y el 1521 publicado hacia la red.
 
-Los esquemas y sus usuarios deben existir en esa base (el script de `docker/oracle` muestra los permisos que necesitan).
+Cada máquina usa su propia plantilla de variables (`.env.production.backend.example` y `.env.production.oracle.example`).
+La guía completa (grupos de seguridad, orden de arranque, comprobaciones y prueba de humo remota) está en
+[docs/despliegue.md](docs/despliegue.md). `./scripts/verificar-despliegue.sh` comprueba desde el backend la conexión con Oracle y
+el estado de los 4 servicios, y `./scripts/comprobar-compose.sh` verifica que los compose de producción siguen alineados con el de desarrollo.
 
 ## Prueba de humo
 
@@ -148,7 +147,7 @@ Con Oracle disponible en `localhost:1521`, los esquemas creados y el `.env` en l
 
 ## Variables de entorno
 
-Ver `.env.example` (desarrollo) y `.env.production.example` (servidor).
+Ver `.env.example` (desarrollo) y, para producción, `.env.production.backend.example` y `.env.production.oracle.example` (una por máquina; ver [docs/despliegue.md](docs/despliegue.md)).
 
 | Variable | La lee | Para qué |
 |---|---|---|
@@ -156,7 +155,9 @@ Ver `.env.example` (desarrollo) y `.env.production.example` (servidor).
 | `AUTH_DB_USER`, `AUTH_DB_PASS` | Oracle (crea el esquema) y `ms-auth` | Esquema de usuarios |
 | `TIENDA_DB_USER`, `TIENDA_DB_PASS` | Oracle (crea el esquema) y `ms-tienda` | Esquema de la tienda (productos y órdenes) |
 | `ARRIENDOS_DB_USER`, `ARRIENDOS_DB_PASS` | Oracle (crea el esquema) y `ms-arriendos` | Esquema de arriendos (máquinas, arriendos y cotizaciones) |
-| `DB_HOST`, `DB_PORT`, `DB_SERVICE` | `ms-auth`, `ms-tienda` y `ms-arriendos` | Dónde está la base (opcionales; ver arriba) |
+| `DB_HOST`, `DB_PORT`, `DB_SERVICE` | `ms-auth`, `ms-tienda` y `ms-arriendos` | Dónde está la base. Opcionales en desarrollo; en `docker-compose.backend.yml`, `DB_HOST` es obligatorio |
+| `ORACLE_BIND_IP` | Oracle (`docker-compose.oracle.yml`) | Opcional: ata el 1521 a una interfaz (por defecto, todas) |
+| `JAVA_TOOL_OPTIONS` | los 4 servicios (`docker-compose.backend.yml`) | Opcional: límites de memoria de la JVM |
 | `JWT_SECRET` | `ms-auth`, `ms-tienda` y `ms-arriendos` | Firma y verificación de los tokens (≥ 64 bytes) |
 | `JWT_ACCESS_EXPIRATION_MS`, `JWT_REFRESH_EXPIRATION_MS` | `ms-auth` | Vigencia de cada token |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `CLIENT_EMAIL`, `CLIENT_PASSWORD` | `ms-auth` | Cuentas iniciales |

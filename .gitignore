@@ -36,7 +36,8 @@ build/
 .env
 .env.*
 !.env.example
-!.env.production.example
+!.env.production.backend.example
+!.env.production.oracle.example
 
 ### Imágenes subidas en local ###
 uploads/
