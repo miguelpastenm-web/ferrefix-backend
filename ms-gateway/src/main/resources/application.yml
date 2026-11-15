@@ -1,6 +1,6 @@
 # Gateway de Ferrefix: único punto de entrada público (puerto 8080).
 # No guarda secretos: no valida JWT (lo hace cada servicio) ni se conecta a la base de datos.
-# AUTH_URL y TIENDA_URL son las direcciones internas de los servicios (docker-compose las define).
+# AUTH_URL, ARRIENDOS_URL y TIENDA_URL son las direcciones internas de los servicios (docker-compose las define).
 server:
   port: ${SERVER_PORT:8080}
 
@@ -27,30 +27,43 @@ spring:
               order: 1
               predicates:
                 - Path=/api/v1/auth/**,/api/v1/users/**
-            # Todo lo demás del contrato público (productos, imágenes, órdenes, máquinas, arriendos, cotizaciones) y
-            # las imágenes servidas en /media/**: ms-tienda.
+            # Arriendo de máquinas: modelos y unidades, arriendos y cotizaciones. Va antes que la ruta general.
+            - id: ms-arriendos
+              uri: ${ARRIENDOS_URL:http://localhost:8083}
+              order: 2
+              predicates:
+                - Path=/api/v1/maquinas/**,/api/v1/arriendos/**,/api/v1/cotizaciones/**
+            # Todo lo demás del contrato público (productos, imágenes y órdenes) y las imágenes servidas en /media/**
+            # (incluidas las de las máquinas, que se suben y se sirven desde ms-tienda): ms-tienda.
             - id: ms-tienda
               uri: ${TIENDA_URL:http://localhost:8082}
-              order: 2
+              order: 3
               predicates:
                 - Path=/api/v1/**,/media/**
             # Documento OpenAPI de cada servicio. La interfaz (Swagger UI) vive en el gateway y los lee de aquí.
             - id: docs-ms-auth
               uri: ${AUTH_URL:http://localhost:8081}
-              order: 3
+              order: 4
               predicates:
                 - Path=/api-docs/ms-auth
               filters:
                 - RewritePath=/api-docs/ms-auth, /v3/api-docs
+            - id: docs-ms-arriendos
+              uri: ${ARRIENDOS_URL:http://localhost:8083}
+              order: 5
+              predicates:
+                - Path=/api-docs/ms-arriendos
+              filters:
+                - RewritePath=/api-docs/ms-arriendos, /v3/api-docs
             - id: docs-ms-tienda
               uri: ${TIENDA_URL:http://localhost:8082}
-              order: 4
+              order: 6
               predicates:
                 - Path=/api-docs/ms-tienda
               filters:
                 - RewritePath=/api-docs/ms-tienda, /v3/api-docs
 
-# Swagger UI en /swagger-ui.html con un selector (ms-tienda / ms-auth). El gateway no tiene endpoints propios: su
+# Swagger UI en /swagger-ui.html con un selector (ms-tienda / ms-arriendos / ms-auth). El gateway no tiene endpoints propios: su
 # /v3/api-docs queda vacío y la interfaz muestra los documentos de los servicios (/api-docs/ms-*).
 springdoc:
   swagger-ui:
@@ -59,6 +72,8 @@ springdoc:
     urls:
       - name: ms-tienda
         url: /api-docs/ms-tienda
+      - name: ms-arriendos
+        url: /api-docs/ms-arriendos
       - name: ms-auth
         url: /api-docs/ms-auth
 

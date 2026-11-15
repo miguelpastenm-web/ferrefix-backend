@@ -5,7 +5,7 @@ import org.springframework.http.MediaType;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** Swagger UI vive en el gateway (un solo lugar, con selector por servicio) y lee el documento de cada servicio. */
+/** Swagger UI vive en el gateway (un solo lugar, con selector por servicio) y lee el documento de cada uno de los 3 servicios. */
 class SwaggerTest extends GatewayTestBase {
 
     @Test
@@ -15,6 +15,7 @@ class SwaggerTest extends GatewayTestBase {
                 .expectHeader().contentTypeCompatibleWith(MediaType.TEXT_HTML);
         assertTrue(servicio.recibidas().isEmpty());
         assertTrue(auth.recibidas().isEmpty());
+        assertTrue(arriendos.recibidas().isEmpty());
     }
 
     @Test
@@ -26,12 +27,13 @@ class SwaggerTest extends GatewayTestBase {
     }
 
     @Test
-    void elSelectorListaMsTiendaYMsAuthConSusDocumentos() {
+    void elSelectorListaLosTresServiciosConSusDocumentos() {
         cliente.get().uri("/v3/api-docs/swagger-config").exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$.urls.length()").isEqualTo(2)
+                .jsonPath("$.urls.length()").isEqualTo(3)
                 .jsonPath("$.urls[?(@.name=='ms-tienda')].url").isEqualTo("/api-docs/ms-tienda")
+                .jsonPath("$.urls[?(@.name=='ms-arriendos')].url").isEqualTo("/api-docs/ms-arriendos")
                 .jsonPath("$.urls[?(@.name=='ms-auth')].url").isEqualTo("/api-docs/ms-auth")
                 .jsonPath("$['urls.primaryName']").isEqualTo("ms-tienda");
     }

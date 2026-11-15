@@ -29,16 +29,18 @@ class ConfiguracionGatewayTest {
     }
 
     @Test
-    void hayRutasParaAuthTiendaYLosDocumentosDeAmbos() {
+    void hayRutasParaLosTresServiciosYSusDocumentos() {
         List<Route> definidas = rutas.getRoutes().collectList().block();
         assertNotNull(definidas);
-        // Orden de evaluación: la ruta de ms-auth va antes que la general de /api/v1/**.
-        assertEquals(List.of("ms-auth", "ms-tienda", "docs-ms-auth", "docs-ms-tienda"),
+        // Orden de evaluación: las rutas de ms-auth y ms-arriendos van antes que la general de /api/v1/**.
+        assertEquals(List.of("ms-auth", "ms-arriendos", "ms-tienda", "docs-ms-auth", "docs-ms-arriendos", "docs-ms-tienda"),
                 definidas.stream().map(Route::getId).toList());
         assertEquals("http://localhost:8081", definidas.get(0).getUri().toString());   // AUTH_URL por defecto
-        assertEquals("http://localhost:8082", definidas.get(1).getUri().toString());   // TIENDA_URL por defecto
-        assertEquals("http://localhost:8081", definidas.get(2).getUri().toString());
-        assertEquals("http://localhost:8082", definidas.get(3).getUri().toString());
+        assertEquals("http://localhost:8083", definidas.get(1).getUri().toString());   // ARRIENDOS_URL por defecto
+        assertEquals("http://localhost:8082", definidas.get(2).getUri().toString());   // TIENDA_URL por defecto
+        assertEquals("http://localhost:8081", definidas.get(3).getUri().toString());
+        assertEquals("http://localhost:8083", definidas.get(4).getUri().toString());
+        assertEquals("http://localhost:8082", definidas.get(5).getUri().toString());
     }
 
     @Test

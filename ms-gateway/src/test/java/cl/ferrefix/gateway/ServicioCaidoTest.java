@@ -21,12 +21,16 @@ class ServicioCaidoTest {
     static void propiedades(DynamicPropertyRegistry registro) throws IOException {
         int puertoTienda;
         int puertoAuth;
-        try (ServerSocket tienda = new ServerSocket(0); ServerSocket autenticacion = new ServerSocket(0)) {
+        int puertoArriendos;
+        try (ServerSocket tienda = new ServerSocket(0); ServerSocket autenticacion = new ServerSocket(0);
+             ServerSocket arriendos = new ServerSocket(0)) {
             puertoTienda = tienda.getLocalPort();          // se cierran enseguida: quedan puertos donde nadie escucha
             puertoAuth = autenticacion.getLocalPort();
+            puertoArriendos = arriendos.getLocalPort();
         }
         registro.add("TIENDA_URL", () -> "http://127.0.0.1:" + puertoTienda);
         registro.add("AUTH_URL", () -> "http://127.0.0.1:" + puertoAuth);
+        registro.add("ARRIENDOS_URL", () -> "http://127.0.0.1:" + puertoArriendos);
     }
 
     @Value("${local.server.port}")
@@ -63,6 +67,18 @@ class ServicioCaidoTest {
                 .expectBody()
                 .jsonPath("$.status").isEqualTo(502)
                 .jsonPath("$.path").isEqualTo("/api/v1/auth/login");
+    }
+
+    @Test
+    void conMsArriendosCaidoLasRutasDeMaquinasArriendosYCotizacionesDevuelven502EnJson() {
+        for (String ruta : new String[]{"/api/v1/maquinas", "/api/v1/arriendos/mis-arriendos", "/api/v1/cotizaciones"}) {
+            cliente.get().uri(ruta).exchange()
+                    .expectStatus().isEqualTo(502)
+                    .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_JSON)
+                    .expectBody()
+                    .jsonPath("$.status").isEqualTo(502)
+                    .jsonPath("$.path").isEqualTo(ruta);
+        }
     }
 
     @Test

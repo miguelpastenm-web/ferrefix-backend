@@ -23,7 +23,7 @@ public record ArriendoResponseDto(
         LocalDateTime fechaDevolucion,
         LocalDateTime createdAt,
         LocalDateTime updatedAt,
-        /** Solo lo ven los ADMIN: RUT, nombre y email salen del usuario dueño del arriendo. */
+        /** Solo lo ven los ADMIN: RUT, nombre y email son la copia que se guardó al arrendar (salen del token del cliente). */
         @JsonInclude(JsonInclude.Include.NON_NULL) ClienteResumen cliente) {
 
     public record MaquinaResumen(Long id, String codigo, String nombre, String marca, String imagenUrl) { }

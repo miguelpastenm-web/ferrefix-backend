@@ -1,12 +1,12 @@
-# Oracle + ms-auth + ms-tienda + ms-gateway. Las credenciales vienen de .env (ver .env.example; en producción,
-# .env.production.example). Único puerto público: el 8080 del gateway. Los servicios solo son alcanzables por la red
-# interna de Docker.
+# Oracle + ms-auth + ms-tienda + ms-arriendos + ms-gateway. Las credenciales vienen de .env (ver .env.example; en
+# producción, .env.production.example). Único puerto público: el 8080 del gateway. Los servicios solo son alcanzables
+# por la red interna de Docker.
 #
-# Oracle tiene UNA instancia con un esquema por servicio (FERREFIX_AUTH y FERREFIX_TIENDA): cada servicio usa su
-# propio usuario y no hay claves foráneas entre esquemas.
+# Oracle tiene UNA instancia con un esquema por servicio (FERREFIX_AUTH, FERREFIX_TIENDA y FERREFIX_ARRIENDOS): cada
+# servicio usa su propio usuario y no hay claves foráneas entre esquemas.
 # DB_HOST y DB_PORT apuntan a la base: por defecto, el contenedor "oracle" de este compose. Si Oracle corre en otra
 # máquina, defínelas en .env (ej. DB_HOST=10.0.2.15) y levanta solo los servicios (sin el contenedor oracle):
-#   docker compose up -d --build --no-deps ms-auth ms-tienda ms-gateway
+#   docker compose up -d --build --no-deps ms-auth ms-tienda ms-arriendos ms-gateway
 
 # Rotación de logs: sin esto crecen sin límite y llenan el disco del servidor.
 x-logging: &logging
@@ -32,6 +32,8 @@ services:
       AUTH_DB_PASS: ${AUTH_DB_PASS:?Falta AUTH_DB_PASS en .env}
       TIENDA_DB_USER: ${TIENDA_DB_USER:?Falta TIENDA_DB_USER en .env}
       TIENDA_DB_PASS: ${TIENDA_DB_PASS:?Falta TIENDA_DB_PASS en .env}
+      ARRIENDOS_DB_USER: ${ARRIENDOS_DB_USER:?Falta ARRIENDOS_DB_USER en .env}
+      ARRIENDOS_DB_PASS: ${ARRIENDOS_DB_PASS:?Falta ARRIENDOS_DB_PASS en .env}
     ports:
       - "127.0.0.1:1521:1521"   # solo local; los servicios usan la red interna
     volumes:
@@ -80,8 +82,8 @@ services:
       start_period: 90s
     logging: *logging
 
-  # Tienda: productos, imágenes, órdenes, máquinas, arriendos y cotizaciones. Solo VERIFICA los tokens (mismo
-  # JWT_SECRET) y toma la identidad del propio token: no consulta a ms-auth. NO publica puertos en el host.
+  # Tienda: productos, imágenes (incluidas las de las máquinas: se suben y se sirven desde aquí) y órdenes. Solo VERIFICA
+  # los tokens (mismo JWT_SECRET) y toma la identidad del propio token: no consulta a ms-auth. NO publica puertos.
   ms-tienda:
     build:
       context: .
@@ -110,9 +112,37 @@ services:
       start_period: 90s
     logging: *logging
 
-  # Único punto de entrada: enruta /api/v1/auth/** y /api/v1/users/** a ms-auth, el resto de /api/v1/** y /media/** a
-  # ms-tienda, sirve Swagger UI (con selector por servicio), resuelve CORS y responde en JSON los errores de enrutado
-  # (404, 502, 504). No conoce secretos: no valida JWT ni usa la base de datos.
+  # Arriendo de máquinas: modelos y unidades, arriendos y cotizaciones. Solo VERIFICA los tokens (mismo JWT_SECRET) y toma
+  # la identidad del propio token. NO publica puertos en el host.
+  ms-arriendos:
+    build:
+      context: .
+      dockerfile: ms-arriendos/Dockerfile
+    container_name: ferrefix_arriendos
+    restart: unless-stopped
+    depends_on:
+      oracle:
+        condition: service_healthy
+    environment:
+      <<: *base-de-datos
+      SERVER_PORT: 8083
+      ARRIENDOS_DB_USER: ${ARRIENDOS_DB_USER:?Falta ARRIENDOS_DB_USER en .env}
+      ARRIENDOS_DB_PASS: ${ARRIENDOS_DB_PASS:?Falta ARRIENDOS_DB_PASS en .env}
+      JWT_SECRET: ${JWT_SECRET:?Falta JWT_SECRET en .env}
+    expose:
+      - "8083"   # solo red interna de Docker
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8083/actuator/health | grep -q UP"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+    logging: *logging
+
+  # Único punto de entrada: enruta /api/v1/auth/** y /api/v1/users/** a ms-auth, /api/v1/maquinas/**, /arriendos/** y
+  # /cotizaciones/** a ms-arriendos, y el resto de /api/v1/** y /media/** a ms-tienda. Sirve Swagger UI (con selector por
+  # servicio), resuelve CORS y responde en JSON los errores de enrutado (404, 502, 504). No conoce secretos: no valida
+  # JWT ni usa la base de datos.
   ms-gateway:
     build:
       context: .
@@ -122,10 +152,13 @@ services:
     depends_on:
       ms-auth:
         condition: service_healthy
+      ms-arriendos:
+        condition: service_healthy
       ms-tienda:
         condition: service_healthy
     environment:
       AUTH_URL: http://ms-auth:8081
+      ARRIENDOS_URL: http://ms-arriendos:8083
       TIENDA_URL: http://ms-tienda:8082
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
     ports:
