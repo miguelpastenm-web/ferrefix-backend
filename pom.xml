@@ -23,6 +23,7 @@
 		<module>ferrefix-common</module>
 		<module>ms-gateway</module>
 		<module>ms-auth</module>
+		<module>ms-arriendos</module>
 		<module>ms-tienda</module>
 	</modules>
 

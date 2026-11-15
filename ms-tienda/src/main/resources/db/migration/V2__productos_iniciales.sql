@@ -1,6 +1,6 @@
--- V3: productos iniciales de Ferrefix (los 18 del catálogo de ferrefix-ui).
+-- V2: productos iniciales de Ferrefix (los 18 del catálogo de ferrefix-ui).
 -- GENERADO desde ferrefix-ui/src/data/productos.js: no editar a mano.
--- NO MODIFICAR este archivo una vez aplicado (Flyway valida el checksum): los cambios van en una V4.
+-- NO MODIFICAR este archivo una vez aplicado (Flyway valida el checksum): los cambios van en una V3.
 --
 -- Idempotente: si un SKU ya existe NO se toca (ni se pisa ni se borra nada); las especificaciones
 -- solo se cargan en productos que aún no tienen ninguna. Las imágenes se sirven desde

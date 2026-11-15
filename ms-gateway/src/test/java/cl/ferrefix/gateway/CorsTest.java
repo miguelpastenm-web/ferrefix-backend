@@ -62,6 +62,7 @@ class CorsTest extends GatewayTestBase {
                 .expectStatus().isForbidden()
                 .expectHeader().doesNotExist(ACAO);
         assertTrue(servicio.recibidas().isEmpty());
+        assertTrue(arriendos.recibidas().isEmpty());
     }
 
     @Test
@@ -92,7 +93,24 @@ class CorsTest extends GatewayTestBase {
                 .expectStatus().isOk()
                 .expectBody().returnResult();
         assertEquals(List.of(ORIGEN), respuesta.getResponseHeaders().get(ACAO));
-        assertEquals(1, servicio.recibidas().size(), "La petición real sí se reenvía");
+        assertEquals(1, arriendos.recibidas().size(), "La petición real sí se reenvía (a ms-arriendos)");
+        assertTrue(servicio.recibidas().isEmpty());
+    }
+
+    @Test
+    void laRespuestaDeCadaUnoDeLosTresServiciosTraeLaCabeceraCorsUnaSolaVez() {
+        // CORS se resuelve solo en el gateway, vaya la petición a ms-tienda, ms-auth o ms-arriendos.
+        for (String ruta : new String[]{"/api/v1/productos", "/api/v1/auth/me", "/api/v1/maquinas"}) {
+            EntityExchangeResult<byte[]> respuesta = cliente.get().uri(ruta)
+                    .header("Origin", ORIGEN)
+                    .exchange()
+                    .expectStatus().isOk()
+                    .expectBody().returnResult();
+            assertEquals(List.of(ORIGEN), respuesta.getResponseHeaders().get(ACAO), ruta);
+        }
+        assertEquals(1, servicio.recibidas().size());
+        assertEquals(1, auth.recibidas().size());
+        assertEquals(1, arriendos.recibidas().size());
     }
 
     @Test

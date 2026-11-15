@@ -14,7 +14,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 /**
  * Servidor HTTP real (Reactor Netty, puerto libre) que hace de un servicio (ms-tienda o ms-auth) en los tests del gateway.
  * Guarda cada petición que recibe, para comprobar qué reenvió el gateway, y responde según la ruta:
- *  - /api/v1/estado/{n} y /api/v1/auth/estado/{n} -> responden con el código n y un cuerpo JSON propio
+ *  - /api/v1/estado/{n}, /api/v1/auth/estado/{n} y /api/v1/arriendos/estado/{n} -> responden con el código n y un cuerpo JSON propio
  *  - /api/v1/lento       -> tarda 5 s (más que el response-timeout de los tests)
  *  - /api/v1/con-cors    -> añade su propia Access-Control-Allow-Origin (un servicio mal configurado)
  *  - /api/v1/creado      -> 201 con cabecera Location
@@ -40,7 +40,8 @@ final class ServicioFalso {
                             recibidas.add(new Peticion(req.method().name(), req.uri(), req.requestHeaders().copy(), cuerpo));
                             String ruta = req.uri().contains("?") ? req.uri().substring(0, req.uri().indexOf('?')) : req.uri();
                             res.header("Content-Type", "application/json");
-                            String prefijoEstado = ruta.startsWith("/api/v1/auth/estado/") ? "/api/v1/auth/estado/" : "/api/v1/estado/";
+                            String prefijoEstado = ruta.startsWith("/api/v1/auth/estado/") ? "/api/v1/auth/estado/"
+                                    : ruta.startsWith("/api/v1/arriendos/estado/") ? "/api/v1/arriendos/estado/" : "/api/v1/estado/";
                             if (ruta.startsWith(prefijoEstado)) {
                                 int codigo = Integer.parseInt(ruta.substring(prefijoEstado.length()));
                                 res.status(HttpResponseStatus.valueOf(codigo));

@@ -7,8 +7,9 @@ COPY pom.xml .
 COPY ferrefix-common/pom.xml ferrefix-common/pom.xml
 COPY ms-gateway/pom.xml ms-gateway/pom.xml
 COPY ms-auth/pom.xml ms-auth/pom.xml
+COPY ms-arriendos/pom.xml ms-arriendos/pom.xml
 COPY ms-tienda/pom.xml ms-tienda/pom.xml
-# Código compartido (verificación del JWT, formato de error): se compila junto con el servicio (-am).
+# Código compartido (verificación del JWT, formato de error, reloj): se compila junto con el servicio (-am).
 COPY ferrefix-common/src ferrefix-common/src
 COPY ms-auth/src ms-auth/src
 RUN mvn -B -pl ms-auth -am clean package -DskipTests

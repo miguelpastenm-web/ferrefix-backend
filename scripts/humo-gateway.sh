@@ -9,12 +9,18 @@
 #      (SIN_REGISTRO=1 lo omite)
 #  3. Productos: el ADMIN crea un producto de prueba (stock 2); el listado público lo incluye.
 #  4. Orden: el CLIENTE compra 1 unidad (201, stock 1); el ADMIN la cancela (200, el stock vuelve a 2) y la elimina (204).
+#  4b. Máquinas y arriendos (ms-arriendos): las 4 máquinas iniciales son públicas y sus imágenes se sirven por el gateway
+#      (desde ms-tienda); el ADMIN crea una máquina con una unidad, el CLIENTE la arrienda, el ADMIN ve los datos del
+#      cliente guardados al arrendar, la devuelve y se elimina todo. Las rutas de ADMIN rechazan al CLIENTE (403).
+#  4c. Cotizaciones (ms-arriendos): cualquiera pide una (con o sin token: con token queda asociada al usuario); solo el
+#      ADMIN las lista, las actualiza y las elimina.
 #  5. Imagen: el ADMIN sube un PNG (multipart) y se descarga sin token desde /media/**.   (SIN_IMAGEN=1 lo omite)
 #  6. CORS: el preflight y la respuesta real traen Access-Control-Allow-Origin exactamente UNA vez.
 #  7. Errores del gateway en JSON: una ruta inexistente devuelve 404 con el formato de la API.
-#  8. Swagger UI en el gateway, con el documento OpenAPI de cada servicio.
+#  8. Swagger UI en el gateway, con el documento OpenAPI de cada uno de los 3 servicios.
 #
-# Datos de prueba: el producto lleva SKU TESTHUMO-* y se elimina al terminar (aunque falle), junto con la orden.
+# Datos de prueba: el producto y la máquina llevan SKU o código TESTHUMO-* y se eliminan al terminar (aunque falle),
+# junto con la orden, el arriendo y las cotizaciones.
 # La imagen subida NO se puede borrar por la API (no existe DELETE de imágenes): queda un PNG de 1x1 en uploads.
 # La cuenta registrada (humo-<fecha>@ferrefix.cl) tampoco se puede borrar por la API: queda en ms-auth. Es un CLIENTE
 # sin órdenes ni arriendos; usa SIN_REGISTRO=1 si no quieres crearla.
@@ -53,7 +59,7 @@ ORIGEN="${ORIGEN:-${ORIGEN_ENV:-http://localhost:5173}}"
 TMP="$(mktemp -d)"; chmod 700 "$TMP"
 HDR_ADMIN="$TMP/admin.hdr"; HDR_CLIENTE="$TMP/cliente.hdr"; HDR_NINGUNO="$TMP/ninguno.hdr"
 : > "$HDR_ADMIN"; : > "$HDR_CLIENTE"; : > "$HDR_NINGUNO"
-ORDEN_ID=""; PRODUCTO_ID=""
+ORDEN_ID=""; PRODUCTO_ID=""; MAQUINA_ID=""; ARRIENDO_ID=""; COTIZACION_IDS=""
 FALLAS=0
 
 json() { python3 -c 'import sys,json; d=json.load(open(sys.argv[1])); print(d.get(sys.argv[2],""))' "$1" "$2" 2>/dev/null; }
@@ -103,6 +109,22 @@ http_sin_sesion() { # http_sin_sesion <MÉTODO> <ruta> <json>
   printf '%s' "$3" | curl -s -o "$TMP/last.json" -w '%{http_code}' -X "$1" "$BASE_URL$2" -H 'Content-Type: application/json' --data-binary @-
 }
 
+# ¿El cuerpo guardado (una lista JSON) trae un elemento cuyo campo vale lo indicado? Imprime "si" o "no".
+lista_tiene() { # lista_tiene <campo> <valor>
+  python3 -c '
+import json, sys
+d = json.load(open(sys.argv[1])); d = d if isinstance(d, list) else d.get("content", [])
+print("si" if any(str(x.get(sys.argv[2])) == sys.argv[3] for x in d) else "no")' "$TMP/last.json" "$1" "$2" 2>/dev/null
+}
+
+# Valor de un campo dentro de un objeto del cuerpo guardado: anidado cliente rut -> last.json["cliente"]["rut"].
+anidado() { # anidado <clave> <subclave>
+  python3 -c '
+import json, sys
+d = json.load(open(sys.argv[1])).get(sys.argv[2]) or {}
+print(d.get(sys.argv[3], ""))' "$TMP/last.json" "$1" "$2" 2>/dev/null
+}
+
 # Cuenta cuántas veces viene Access-Control-Allow-Origin en las cabeceras guardadas (debe ser exactamente 1).
 contar_acao() { grep -ci '^access-control-allow-origin:' "$1"; }
 valor_acao() { grep -i '^access-control-allow-origin:' "$1" | head -1 | cut -d: -f2- | tr -d ' \r'; }
@@ -118,6 +140,19 @@ limpiar() {
     if [ "$(http "$HDR_ADMIN" DELETE "/api/v1/productos/$PRODUCTO_ID")" = "204" ]; then echo "  producto de prueba eliminado"
     else echo "  ADVERTENCIA: no se pudo eliminar el producto $PRODUCTO_ID (SKU TESTHUMO-*). Revisarlo a mano."; fi
   fi
+  # El arriendo va antes que la máquina: una máquina con arriendos registrados no se puede eliminar.
+  if [ -n "$ARRIENDO_ID" ]; then
+    if [ "$(http "$HDR_ADMIN" DELETE "/api/v1/arriendos/$ARRIENDO_ID")" = "204" ]; then echo "  arriendo de prueba eliminado"
+    else echo "  ADVERTENCIA: no se pudo eliminar el arriendo $ARRIENDO_ID. Revisarlo a mano."; fi
+  fi
+  if [ -n "$MAQUINA_ID" ]; then
+    if [ "$(http "$HDR_ADMIN" DELETE "/api/v1/maquinas/$MAQUINA_ID")" = "204" ]; then echo "  máquina de prueba eliminada"
+    else echo "  ADVERTENCIA: no se pudo eliminar la máquina $MAQUINA_ID (código TESTHUMO-*). Revisarla a mano."; fi
+  fi
+  for id in $COTIZACION_IDS; do
+    if [ "$(http "$HDR_ADMIN" DELETE "/api/v1/cotizaciones/$id")" = "204" ]; then echo "  cotización $id eliminada"
+    else echo "  ADVERTENCIA: no se pudo eliminar la cotización $id. Revisarla a mano."; fi
+  done
   rm -rf "$TMP"
 }
 trap limpiar EXIT
@@ -228,6 +263,86 @@ else
   echo "  FALLA la orden no devolvió id: se omite cancelar y eliminar"; FALLAS=$((FALLAS+1))
 fi
 
+echo; echo "== 4b. Máquinas y arriendos (ms-arriendos) =="
+verificar "GET /api/v1/maquinas sin token (HTTP)" 200 "$(http "$HDR_NINGUNO" GET /api/v1/maquinas)"
+for codigo in MAQ-BOSCH-01 MAQ-BET-02 MAQ-GEN-03 MAQ-PLAC-04; do
+  verificar "el catálogo trae la máquina inicial $codigo" si "$(lista_tiene codigo "$codigo")"
+done
+verificar "imagen de una máquina inicial por el gateway (HTTP)" 200 "$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/media/maquinas/maq-bosch-01.webp")"
+
+# Identidad del cliente tal como la ve ms-auth: el arriendo debe guardar esa misma copia.
+verificar "GET /api/v1/auth/me del CLIENTE (HTTP)" 200 "$(http "$HDR_CLIENTE" GET /api/v1/auth/me)"
+CLI_ID="$(json "$TMP/last.json" id)"; CLI_RUT="$(json "$TMP/last.json" rut)"; CLI_NOMBRE="$(json "$TMP/last.json" nombre)"; CLI_EMAIL="$(json "$TMP/last.json" email)"
+
+CODIGO_MAQUINA="TESTHUMO-$(date +%s)"
+CUERPO_MAQUINA="$(printf '{"codigo":"%s","nombre":"Máquina de prueba de humo","marca":"Prueba","categoria":"Pruebas","tarifaDia":10000,"incluye":"Creada por scripts/humo-gateway.sh"}' "$CODIGO_MAQUINA")"
+verificar "CLIENTE no puede crear máquinas (HTTP)" 403 "$(http "$HDR_CLIENTE" POST /api/v1/maquinas "$CUERPO_MAQUINA")"
+verificar "ADMIN crea la máquina de prueba (HTTP)" 201 "$(http "$HDR_ADMIN" POST /api/v1/maquinas "$CUERPO_MAQUINA")"
+MAQUINA_ID="$(json "$TMP/last.json" id)"
+[ -n "$MAQUINA_ID" ] || { echo "No se pudo crear la máquina de prueba: no se puede continuar"; exit 1; }
+verificar "sin unidades la máquina nace NO_DISPONIBLE" NO_DISPONIBLE "$(json "$TMP/last.json" estado)"
+verificar "ADMIN agrega 1 unidad (HTTP)" 201 "$(http "$HDR_ADMIN" POST "/api/v1/maquinas/$MAQUINA_ID/unidades" '{"cantidad":1}')"
+verificar "GET /api/v1/maquinas/{id} sin token (HTTP)" 200 "$(http "$HDR_NINGUNO" GET "/api/v1/maquinas/$MAQUINA_ID")"
+verificar "con una unidad libre queda DISPONIBLE" DISPONIBLE "$(json "$TMP/last.json" estado)"
+verificar "el detalle de unidades es solo ADMIN: CLIENTE (HTTP)" 403 "$(http "$HDR_CLIENTE" GET "/api/v1/maquinas/$MAQUINA_ID/unidades")"
+verificar "el detalle de unidades es solo ADMIN: ADMIN (HTTP)" 200 "$(http "$HDR_ADMIN" GET "/api/v1/maquinas/$MAQUINA_ID/unidades")"
+
+FECHA_INICIO="$(TZ=America/Santiago date +%F)"   # el servicio valida contra la fecha de Chile
+CUERPO_ARRIENDO="$(printf '{"maquinaId":%s,"diasArriendo":2,"fechaInicio":"%s","telefono":"+56 9 8765 4321","direccionFaena":"Av. Prueba 123","region":"Región Metropolitana","comuna":"Providencia"}' "$MAQUINA_ID" "$FECHA_INICIO")"
+verificar "ADMIN no puede arrendar (HTTP)" 403 "$(http "$HDR_ADMIN" POST /api/v1/arriendos "$CUERPO_ARRIENDO")"
+verificar "sin token no se arrienda (HTTP)" 401 "$(http "$HDR_NINGUNO" POST /api/v1/arriendos "$CUERPO_ARRIENDO")"
+verificar "CLIENTE arrienda la máquina (HTTP)" 201 "$(http "$HDR_CLIENTE" POST /api/v1/arriendos "$CUERPO_ARRIENDO")"
+ARRIENDO_ID="$(json "$TMP/last.json" id)"
+verificar "estado del arriendo" VIGENTE "$(json "$TMP/last.json" estado)"
+verificar "total = tarifa x días" 20000 "$(json "$TMP/last.json" total)"
+verificar "el CLIENTE no ve los datos del cliente en su propio arriendo" "" "$(anidado cliente rut)"
+verificar "sin unidades libres, la máquina queda sin disponibles" 0 "$(http "$HDR_NINGUNO" GET "/api/v1/maquinas/$MAQUINA_ID" >/dev/null; json "$TMP/last.json" unidadesDisponibles)"
+verificar "arrendar la misma máquina otra vez (HTTP)" 409 "$(http "$HDR_CLIENTE" POST /api/v1/arriendos "$CUERPO_ARRIENDO")"
+if [ -n "$ARRIENDO_ID" ]; then
+  verificar "GET /api/v1/arriendos/mis-arriendos del CLIENTE (HTTP)" 200 "$(http "$HDR_CLIENTE" GET /api/v1/arriendos/mis-arriendos)"
+  verificar "mis-arriendos incluye el arriendo" si "$(lista_tiene id "$ARRIENDO_ID")"
+  verificar "GET /api/v1/arriendos es solo ADMIN: CLIENTE (HTTP)" 403 "$(http "$HDR_CLIENTE" GET /api/v1/arriendos)"
+  verificar "GET /api/v1/arriendos/{id} como ADMIN (HTTP)" 200 "$(http "$HDR_ADMIN" GET "/api/v1/arriendos/$ARRIENDO_ID")"
+  echo "  -- el ADMIN ve la copia del cliente que se guardó al arrendar (tomada del token, sin consultar a ms-auth)"
+  verificar "cliente.id" "$CLI_ID" "$(anidado cliente id)"
+  verificar "cliente.rut" "$CLI_RUT" "$(anidado cliente rut)"
+  verificar "cliente.nombre" "$CLI_NOMBRE" "$(anidado cliente nombre)"
+  verificar "cliente.email" "$CLI_EMAIL" "$(anidado cliente email)"
+  verificar "ADMIN devuelve la máquina (HTTP)" 200 "$(http "$HDR_ADMIN" PATCH "/api/v1/arriendos/$ARRIENDO_ID/devolver")"
+  verificar "estado tras devolver" FINALIZADO "$(json "$TMP/last.json" estado)"
+  verificar "la unidad vuelve a estar libre" 1 "$(http "$HDR_NINGUNO" GET "/api/v1/maquinas/$MAQUINA_ID" >/dev/null; json "$TMP/last.json" unidadesDisponibles)"
+  verificar "ADMIN elimina el arriendo (HTTP)" 204 "$(http "$HDR_ADMIN" DELETE "/api/v1/arriendos/$ARRIENDO_ID")"
+  ARRIENDO_ID=""
+else
+  echo "  FALLA el arriendo no devolvió id: se omiten las comprobaciones siguientes"; FALLAS=$((FALLAS+1))
+fi
+verificar "ADMIN elimina la máquina de prueba (HTTP)" 204 "$(http "$HDR_ADMIN" DELETE "/api/v1/maquinas/$MAQUINA_ID")"
+[ "$(http "$HDR_NINGUNO" GET "/api/v1/maquinas/$MAQUINA_ID")" = "404" ] && MAQUINA_ID=""
+
+echo; echo "== 4c. Cotizaciones (ms-arriendos) =="
+CUERPO_COTIZACION='{"nombre":"Cotización de humo","rut":"11.111.111-1","email":"humo@ferrefix.cl","telefono":"+56 9 8765 4321","tipoProyecto":"Arriendo de Maquinaria y Demoledores","region":"Región Metropolitana","detalle":"Prueba de humo del gateway, se elimina sola","despachoObra":true}'
+verificar "cotización pública sin token (HTTP)" 201 "$(http "$HDR_NINGUNO" POST /api/v1/cotizaciones "$CUERPO_COTIZACION")"
+COT_ANONIMA="$(json "$TMP/last.json" id)"; COTIZACION_IDS="$COTIZACION_IDS $COT_ANONIMA"
+verificar "la respuesta pública es solo un acuse (sin RUT)" "" "$(json "$TMP/last.json" rut)"
+verificar "cotización con token del CLIENTE (HTTP)" 201 "$(http "$HDR_CLIENTE" POST /api/v1/cotizaciones "$CUERPO_COTIZACION")"
+COT_CLIENTE="$(json "$TMP/last.json" id)"; COTIZACION_IDS="$COTIZACION_IDS $COT_CLIENTE"
+verificar "cotización con RUT inválido (HTTP)" 400 "$(http "$HDR_NINGUNO" POST /api/v1/cotizaciones "${CUERPO_COTIZACION/11.111.111-1/11.111.111-2}")"
+verificar "listar cotizaciones es solo ADMIN: sin token (HTTP)" 401 "$(http "$HDR_NINGUNO" GET /api/v1/cotizaciones)"
+verificar "listar cotizaciones es solo ADMIN: CLIENTE (HTTP)" 403 "$(http "$HDR_CLIENTE" GET /api/v1/cotizaciones)"
+verificar "listar cotizaciones como ADMIN (HTTP)" 200 "$(http "$HDR_ADMIN" GET /api/v1/cotizaciones)"
+verificar "el listado incluye la cotización anónima" si "$(lista_tiene id "$COT_ANONIMA")"
+verificar "el listado incluye la del CLIENTE" si "$(lista_tiene id "$COT_CLIENTE")"
+if [ -n "$COT_CLIENTE" ]; then
+  verificar "GET /api/v1/cotizaciones/{id} como ADMIN (HTTP)" 200 "$(http "$HDR_ADMIN" GET "/api/v1/cotizaciones/$COT_CLIENTE")"
+  verificar "con token queda asociada al usuario (usuarioId del token)" "$CLI_ID" "$(json "$TMP/last.json" usuarioId)"
+  verificar "ADMIN actualiza estado y nota (HTTP)" 200 "$(http "$HDR_ADMIN" PATCH "/api/v1/cotizaciones/$COT_CLIENTE" '{"estado":"EN_REVISION","notaAdmin":"Revisada por la prueba de humo"}')"
+  verificar "estado tras actualizar" EN_REVISION "$(json "$TMP/last.json" estado)"
+fi
+if [ -n "$COT_ANONIMA" ]; then
+  verificar "GET de la cotización anónima como ADMIN (HTTP)" 200 "$(http "$HDR_ADMIN" GET "/api/v1/cotizaciones/$COT_ANONIMA")"
+  verificar "sin token queda sin usuario" "" "$(json "$TMP/last.json" usuarioId | sed 's/^None$//')"
+fi
+
 echo; echo "== 5. Subida de imagen (multipart) =="
 if [ "${SIN_IMAGEN:-0}" = "1" ]; then
   echo "  omitida (SIN_IMAGEN=1)"
@@ -275,17 +390,30 @@ verificar "/actuator/env no está expuesto (HTTP)" 404 "$(http "$HDR_NINGUNO" GE
 echo; echo "== 8. Swagger UI en el gateway, con un documento por servicio =="
 verificar "GET /swagger-ui.html siguiendo la redirección (HTTP)" 200 "$(curl -s -L -o /dev/null -w '%{http_code}' "$BASE_URL/swagger-ui.html")"
 verificar "GET /v3/api-docs/swagger-config (HTTP)" 200 "$(http "$HDR_NINGUNO" GET /v3/api-docs/swagger-config)"
-verificar "el selector lista ms-auth y ms-tienda" "ms-auth,ms-tienda" "$(python3 -c '
+verificar "el selector lista ms-arriendos, ms-auth y ms-tienda" "ms-arriendos,ms-auth,ms-tienda" "$(python3 -c '
 import json, sys
 print(",".join(sorted(u["name"] for u in json.load(open(sys.argv[1])).get("urls", []))))' "$TMP/last.json" 2>/dev/null)"
 verificar "GET /api-docs/ms-auth (HTTP)" 200 "$(http "$HDR_NINGUNO" GET /api-docs/ms-auth)"
 verificar "ms-auth documenta login, register, refresh, auth/me y users/me" 5 "$(python3 -c '
 import json, sys
 print(len(json.load(open(sys.argv[1])).get("paths", {})))' "$TMP/last.json" 2>/dev/null)"
+verificar "GET /api-docs/ms-arriendos (HTTP)" 200 "$(http "$HDR_NINGUNO" GET /api-docs/ms-arriendos)"
+verificar "ms-arriendos documenta máquinas, arriendos y cotizaciones" si "$(python3 -c '
+import json, sys
+p = json.load(open(sys.argv[1])).get("paths", {})
+print("si" if all(any(r.startswith(pref) for r in p) for pref in ("/api/v1/maquinas", "/api/v1/arriendos", "/api/v1/cotizaciones")) else "no")' "$TMP/last.json" 2>/dev/null)"
+verificar "ms-arriendos no documenta productos ni órdenes" no "$(python3 -c '
+import json, sys
+p = json.load(open(sys.argv[1])).get("paths", {})
+print("si" if any(r.startswith(("/api/v1/productos", "/api/v1/ordenes")) for r in p) else "no")' "$TMP/last.json" 2>/dev/null)"
 verificar "GET /api-docs/ms-tienda (HTTP)" 200 "$(http "$HDR_NINGUNO" GET /api-docs/ms-tienda)"
 verificar "ms-tienda documenta /api/v1/productos" si "$(python3 -c '
 import json, sys
 print("si" if "/api/v1/productos" in json.load(open(sys.argv[1])).get("paths", {}) else "no")' "$TMP/last.json" 2>/dev/null)"
+verificar "ms-tienda ya no documenta máquinas ni arriendos" no "$(python3 -c '
+import json, sys
+p = json.load(open(sys.argv[1])).get("paths", {})
+print("si" if any(r.startswith(("/api/v1/maquinas", "/api/v1/arriendos", "/api/v1/cotizaciones")) for r in p) else "no")' "$TMP/last.json" 2>/dev/null)"
 
 echo
 if [ "$FALLAS" -eq 0 ]; then echo "RESULTADO: todo OK a través del gateway."; else echo "RESULTADO: $FALLAS verificación(es) fallaron."; fi

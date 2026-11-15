@@ -3,7 +3,7 @@ package cl.ferrefix.controller;
 import cl.ferrefix.config.SecurityConfig;
 import cl.ferrefix.controller.handler.ApiExceptionHandler;
 import cl.ferrefix.security.*;
-import cl.ferrefix.service.ArriendoService;
+import cl.ferrefix.service.OrdenService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -20,19 +20,20 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Este servicio no debe añadir cabeceras Access-Control-*: si lo hiciera, el navegador recibiría
  * Access-Control-Allow-Origin duplicada (una del gateway y otra de aquí) y rechazaría la respuesta.
  */
-@WebMvcTest(ArriendoController.class)
+@WebMvcTest(OrdenController.class)
 @Import({SecurityConfig.class, ApiExceptionHandler.class, JwtAuthenticationFilter.class,
         RestAuthenticationEntryPoint.class, RestAccessDeniedHandler.class, SecurityErrorWriter.class})
 class SinCorsTest {
 
     @Autowired MockMvc mvc;
-    @MockitoBean ArriendoService arriendoService;
+    @MockitoBean OrdenService ordenService;
     @MockitoBean JwtVerificador jwtVerificador;
 
     @Test
     void unaPeticionConOrigenSeAtiendeSinCabecerasCors() throws Exception {
-        mvc.perform(patch("/api/v1/arriendos/77/devolver")
+        mvc.perform(patch("/api/v1/ordenes/501/estado")
                         .with(TokensDePrueba.como(TokensDePrueba.ADMIN))
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON).content("{\"estado\":\"CANCELADA\"}")
                         .header("Origin", "http://localhost:5173"))
                 .andExpect(status().isOk())
                 .andExpect(header().doesNotExist("Access-Control-Allow-Origin"))

@@ -11,7 +11,7 @@ import java.time.Duration;
 
 /**
  * Base de los tests de integración: levanta el gateway COMPLETO en un puerto libre y lo apunta a un ServicioFalso
- * que hace de ms-tienda y a otro que hace de ms-auth. Las peticiones viajan por HTTP real (cliente -> gateway -> servicio), igual que en producción.
+ * que hace de ms-tienda y a otros dos que hacen de ms-auth y ms-arriendos. Las peticiones viajan por HTTP real (cliente -> gateway -> servicio), igual que en producción.
  * El response-timeout se baja a 2 s solo para poder probar el 504 sin esperar 60 s (el valor real se comprueba en
  * ConfiguracionGatewayTest).
  */
@@ -23,11 +23,14 @@ abstract class GatewayTestBase {
     static final ServicioFalso servicio = new ServicioFalso("ms-tienda");
     /** Hace de ms-auth. */
     static final ServicioFalso auth = new ServicioFalso("ms-auth");
+    /** Hace de ms-arriendos. */
+    static final ServicioFalso arriendos = new ServicioFalso("ms-arriendos");
 
     @DynamicPropertySource
     static void propiedades(DynamicPropertyRegistry registro) {
         registro.add("TIENDA_URL", servicio::url);
         registro.add("AUTH_URL", auth::url);
+        registro.add("ARRIENDOS_URL", arriendos::url);
         registro.add("CORS_ALLOWED_ORIGINS", () -> ORIGEN + ", http://front.ferrefix.example");
         registro.add("spring.cloud.gateway.server.webflux.httpclient.response-timeout", () -> "2s");
     }
@@ -41,6 +44,7 @@ abstract class GatewayTestBase {
     void prepararCliente() {
         servicio.limpiar();
         auth.limpiar();
+        arriendos.limpiar();
         cliente = WebTestClient.bindToServer()
                 .baseUrl("http://localhost:" + puerto)
                 .responseTimeout(Duration.ofSeconds(20))

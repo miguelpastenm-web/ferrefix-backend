@@ -18,7 +18,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 /**
  * Seguridad stateless con JWT. Los tokens los emite ms-auth; aquí solo se verifican (mismo secreto) y la identidad
  * y los roles se toman del propio token.
- *  - Públicos: lectura de productos y máquinas, crear cotizaciones, /media/**, Swagger y health.
+ *  - Públicos: lectura de productos, /media/**, el documento OpenAPI y health.
  *  - Todo lo demás exige token; el rol se controla por endpoint con @PreAuthorize("hasRole('ADMIN')").
  *  - 401 y 403 salen en JSON (ErrorResponseDto) desde los handlers de seguridad.
  *  - CORS NO se configura aquí: lo resuelve el gateway (único punto de entrada). Si este servicio también añadiera
@@ -57,10 +57,7 @@ public class SecurityConfig {
                         .accessDeniedHandler(accessDeniedHandler))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        // El detalle de unidades es solo para ADMIN: debe ir ANTES del permitAll de /maquinas/**
-                        .requestMatchers(HttpMethod.GET, "/api/v1/maquinas/*/unidades").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/v1/productos", "/api/v1/productos/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/v1/maquinas", "/api/v1/maquinas/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/media/**").permitAll()
                         .requestMatchers(HttpMethod.HEAD, "/media/**").permitAll()
                         .requestMatchers("/v3/api-docs/**").permitAll()
@@ -70,18 +67,6 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v1/productos", "/api/v1/productos/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/v1/productos", "/api/v1/productos/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/api/v1/productos", "/api/v1/productos/**").hasRole("ADMIN")
-                        // Escritura de máquinas y de sus unidades solo ADMIN
-                        .requestMatchers(HttpMethod.POST, "/api/v1/maquinas", "/api/v1/maquinas/**").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.PUT, "/api/v1/maquinas", "/api/v1/maquinas/**").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.DELETE, "/api/v1/maquinas", "/api/v1/maquinas/**").hasRole("ADMIN")
-                        // Arriendos: arrendar y ver los propios solo CLIENTE; gestionar solo ADMIN.
-                        // GET /arriendos/{id} queda para cualquier autenticado (el service oculta los ajenos con 404).
-                        .requestMatchers(HttpMethod.POST, "/api/v1/arriendos").hasRole("CLIENTE")
-                        .requestMatchers(HttpMethod.GET, "/api/v1/arriendos/mis-arriendos").hasRole("CLIENTE")
-                        .requestMatchers(HttpMethod.GET, "/api/v1/arriendos").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.PUT, "/api/v1/arriendos/**").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.PATCH, "/api/v1/arriendos/**").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.DELETE, "/api/v1/arriendos/**").hasRole("ADMIN")
                         // Órdenes: comprar y ver las propias solo CLIENTE (ADMIN no compra); gestionar solo ADMIN.
                         // GET /ordenes/{id} queda para cualquier autenticado (el service oculta las ajenas con 404).
                         .requestMatchers(HttpMethod.POST, "/api/v1/ordenes").hasRole("CLIENTE")
@@ -89,10 +74,6 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/ordenes").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PATCH, "/api/v1/ordenes/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/api/v1/ordenes/**").hasRole("ADMIN")
-                        // Cotizaciones: CREAR es público (con o sin token); todo lo demás es solo ADMIN. El orden importa:
-                        // la regla pública del POST va antes del "cualquier otro método = ADMIN".
-                        .requestMatchers(HttpMethod.POST, "/api/v1/cotizaciones").permitAll()
-                        .requestMatchers("/api/v1/cotizaciones", "/api/v1/cotizaciones/**").hasRole("ADMIN")
                         // Imágenes: cualquier método sobre /api/v1/imagenes exige ADMIN (además de @PreAuthorize)
                         .requestMatchers("/api/v1/imagenes", "/api/v1/imagenes/**").hasRole("ADMIN")
                         .anyRequest().authenticated())

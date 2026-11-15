@@ -18,9 +18,8 @@ class EnrutadoTest extends GatewayTestBase {
 
     @ParameterizedTest
     @ValueSource(strings = {
-            "/api/v1/productos", "/api/v1/productos/15", "/api/v1/maquinas/3/unidades",
-            "/api/v1/ordenes/mis-ordenes", "/api/v1/arriendos", "/api/v1/cotizaciones",
-            "/media/productos/taladro-percutor.webp"})
+            "/api/v1/productos", "/api/v1/productos/15", "/api/v1/ordenes/mis-ordenes", "/api/v1/ordenes",
+            "/media/productos/taladro-percutor.webp", "/media/maquinas/maq-bosch-01.webp"})
     void lasRutasDeLaTiendaLleganAMsTienda(String ruta) {
         cliente.get().uri(ruta).exchange()
                 .expectStatus().isOk()
@@ -28,6 +27,7 @@ class EnrutadoTest extends GatewayTestBase {
         assertEquals("GET", servicio.ultima().metodo());
         assertEquals(ruta, servicio.ultima().uri());
         assertTrue(auth.recibidas().isEmpty(), "Estas rutas no son de ms-auth");
+        assertTrue(arriendos.recibidas().isEmpty(), "Estas rutas no son de ms-arriendos");
     }
 
     @Test
@@ -80,6 +80,8 @@ class EnrutadoTest extends GatewayTestBase {
         assertEquals("localhost:" + puerto, servicio.ultima().cabeceras().get("Host"));
         cliente.get().uri("/api-docs/ms-auth").exchange().expectStatus().isOk();
         assertEquals("localhost:" + puerto, auth.ultima().cabeceras().get("Host"));
+        cliente.get().uri("/api-docs/ms-arriendos").exchange().expectStatus().isOk();
+        assertEquals("localhost:" + puerto, arriendos.ultima().cabeceras().get("Host"));
     }
 
     @Test

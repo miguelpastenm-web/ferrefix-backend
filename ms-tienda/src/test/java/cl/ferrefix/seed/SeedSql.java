@@ -9,10 +9,10 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Lee V3__productos_iniciales.sql (el generado) y lo convierte en objetos, para validarlo sin Oracle. */
+/** Lee V2__productos_iniciales.sql (el generado) y lo convierte en objetos, para validarlo sin Oracle. */
 final class SeedSql {
 
-    static final String RECURSO = "/db/migration/V3__productos_iniciales.sql";
+    static final String RECURSO = "/db/migration/V2__productos_iniciales.sql";
 
     record Producto(String sku, String nombre, String marca, String categoria, int precio, int stock,
                     String estado, String imagen, String imagenOferta, String descripcion) { }

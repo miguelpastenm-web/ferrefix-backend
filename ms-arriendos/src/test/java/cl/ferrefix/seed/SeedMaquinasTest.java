@@ -2,18 +2,14 @@ package cl.ferrefix.seed;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.springframework.core.io.Resource;
-import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** Valida el V5 generado (máquinas, especificaciones, unidades e imágenes) sin necesitar Oracle. */
+/** Valida el V2 generado (máquinas, especificaciones, unidades e imágenes) sin necesitar Oracle. */
 class SeedMaquinasTest {
 
     /** Tarifas por día tal como están en ferrefix-ui/src/data/maquinarias.js. */
@@ -119,41 +115,27 @@ class SeedMaquinasTest {
     }
 
     // ---------------------------------------------------------------- imágenes
-    private static String recurso(String url) {
-        assertTrue(url.matches("^/media/maquinas/maq-[a-z0-9-]+\\.webp$"), "URL con formato inesperado: " + url);
-        return "seed-media/" + url.substring("/media/".length());
-    }
-
+    // Los archivos .webp viven en ms-tienda (que sirve /media/**): aquí solo se verifica el contrato de URLs.
     @Test
-    void todasLasImagenesReferenciadasExistenYSonWebp() throws IOException {
+    void lasImagenesSembradasSiguenElFormatoDelContratoConMsTienda() {
         for (SeedMaquinasSql.Modelo m : modelos) {
             assertEquals("/media/maquinas/" + m.codigo().toLowerCase() + ".webp", m.imagen());
-            try (InputStream in = getClass().getClassLoader().getResourceAsStream(recurso(m.imagen()))) {
-                assertNotNull(in, "Falta el archivo de " + m.imagen());
-                byte[] cab = in.readNBytes(12);
-                assertEquals("RIFF", new String(cab, 0, 4, StandardCharsets.ISO_8859_1), m.imagen());
-                assertEquals("WEBP", new String(cab, 8, 4, StandardCharsets.ISO_8859_1), m.imagen());
-            }
+            assertTrue(m.imagen().matches("^/media/maquinas/maq-[a-z0-9-]+\\.webp$"), "URL con formato inesperado: " + m.imagen());
         }
     }
 
     @Test
-    void noHayImagenesHuerfanasNiRepetidas() throws IOException {
+    void lasUrlsSembradasSonExactamenteLasDelContratoYNoSeRepiten() {
         List<String> urls = modelos.stream().map(SeedMaquinasSql.Modelo::imagen).toList();
         assertEquals(4, new HashSet<>(urls).size(), "Dos modelos comparten imagen");
-
-        Set<String> enDisco = new TreeSet<>();
-        for (Resource r : new PathMatchingResourcePatternResolver().getResources("classpath*:seed-media/maquinas/*.webp")) {
-            String ruta = r.getURL().toString();
-            enDisco.add("/media/" + ruta.substring(ruta.indexOf("seed-media/") + "seed-media/".length()));
-        }
-        assertEquals(new TreeSet<>(urls), enDisco, "seed-media/maquinas y V5 no coinciden");
+        assertEquals(new TreeSet<>(ContratoImagenesMaquinas.URLS), new TreeSet<>(urls),
+                "Las imágenes de V2 y las que sirve ms-tienda no coinciden");
     }
 
     // ---------------------------------------------------------------- idempotencia y alcance
     @Test
     void laMigracionSoloTieneMergeEInsertIdempotentesSinArriendos() {
-        for (String s : SeedSql.sentencias(sql)) {
+        for (String s : SeedMaquinasSql.sentencias(sql)) {
             if (s.startsWith("MERGE INTO MAQUINAS")) {
                 assertTrue(s.contains("WHEN NOT MATCHED THEN INSERT"), s);
                 assertFalse(s.contains("WHEN MATCHED"), "MERGE no debe actualizar modelos existentes");
@@ -163,7 +145,7 @@ class SeedMaquinasTest {
                 assertTrue(s.contains("NOT EXISTS"), "Falta NOT EXISTS: " + s.substring(0, Math.min(60, s.length())));
             }
         }
-        assertEquals(4 + 4 + 8, SeedSql.sentencias(sql).size());
+        assertEquals(4 + 4 + 8, SeedMaquinasSql.sentencias(sql).size());
         assertFalse(sql.toUpperCase().contains("ARRIENDOS"), "No se siembran arriendos");
         assertFalse(sql.contains("${"), "Flyway interpretaría ${...} como placeholder");
     }
