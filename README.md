@@ -5,6 +5,115 @@ arriendo de máquinas, cotizaciones y panel administrativo.
 
 Frontend: https://github.com/miguelpastenm-web/ferrefix-ui
 
+## Propuesta: Ferrefix v2
+
+Resumen de esta rama para quien la revisa por primera vez. El detalle técnico está en las secciones siguientes.
+
+### Qué es
+
+El backend de Ferrefix, que era un solo servicio Spring Boot, reorganizado como proyecto Maven multimódulo con arquitectura de
+microservicios y un API gateway (Java 21, Spring Boot 4.0.6, Spring Cloud Gateway sobre WebFlux, Oracle y Flyway):
+
+- **`ms-gateway`**: único punto de entrada (puerto 8080). Enruta hacia los servicios, resuelve CORS, sirve un Swagger UI único con
+  selector por servicio y responde en JSON los errores de enrutado (404, 502 y 504).
+- **`ms-auth`**: cuentas, login, renovación de token y perfil. Es el único servicio que emite JWT (HS512; por defecto, access de
+  15 minutos y refresh de 7 días).
+- **`ms-tienda`**: productos, imágenes y órdenes.
+- **`ms-arriendos`**: máquinas y sus unidades, arriendos y cotizaciones.
+- **`ferrefix-common`**: librería compartida, no es un servicio. Contiene la verificación del JWT, el formato de error y utilidades
+  comunes.
+
+Los servicios no se publican en el host: solo el gateway. Cada servicio verifica el JWT con el secreto compartido y toma la
+identidad del propio token, sin consultar a `ms-auth` en cada petición. Las rutas son las mismas que tenía el servicio único
+(37 endpoints bajo `/api/v1`, más `/media/**`). Ver [Arquitectura](#arquitectura).
+
+### Qué incluye
+
+- **Productos**: catálogo con búsqueda, filtros y orden; alta, edición y baja para ADMIN. 18 productos iniciales.
+- **Imágenes**: subida de ADMIN (JPEG, PNG, WEBP o AVIF de hasta 6 MB, validadas por su contenido) y publicación en `/media/**`.
+- **Órdenes**: compra de un CLIENTE. El stock se descuenta con un `UPDATE` condicionado dentro de la misma transacción, todo o
+  nada: si una línea no tiene stock suficiente no se descuenta ninguna. Estados `PAGADA` → `EN_PREPARACION` → `DESPACHADA` →
+  `ENTREGADA`; se puede cancelar antes del despacho y la cancelación devuelve el stock. El costo de envío lo calcula el servidor.
+- **Máquinas**: modelos con unidades individuales (4 modelos iniciales, 2 unidades cada uno). El estado del modelo depende de las
+  unidades libres; el ADMIN agrega y quita unidades.
+- **Arriendos**: un CLIENTE arrienda un modelo y el servidor le asigna una unidad libre, con bloqueo del modelo y un índice único
+  que impide dos arriendos vigentes de la misma unidad. El ADMIN edita, registra la devolución y elimina; ve los datos del cliente
+  guardados al momento de arrendar.
+- **Cotizaciones**: cualquier visitante puede pedirlas (con o sin sesión); el ADMIN las lista, cambia su estado y nota, y las elimina.
+- **Cuentas**: registro de CLIENTE (con validación de RUT), login, renovación de token, `/auth/me` y edición del propio perfil.
+  Roles `ADMIN` y `CLIENTE`.
+
+**Tests** (`./mvnw test`, 577 en total, 0 fallos):
+
+| Módulo | Tests |
+|---|--:|
+| `ferrefix-common` | 66 |
+| `ms-auth` | 91 |
+| `ms-tienda` | 145 |
+| `ms-arriendos` | 172 |
+| `ms-gateway` | 103 |
+
+Los tests no necesitan Docker ni Oracle: cada servicio arranca completo con los repositorios simulados, y los del gateway lo levantan
+contra servicios HTTP de prueba. Por eso no ejecutan las migraciones sobre una base real; eso se comprueba levantando el stack
+(ver la prueba de humo).
+
+### Cómo probarlo
+
+Requisitos: Docker con Compose y, para los tests, JDK 21 (`./mvnw` descarga Maven).
+
+```bash
+cp .env.example .env
+# Completar en .env: ORACLE_PASSWORD, AUTH_DB_PASS, TIENDA_DB_PASS y ARRIENDOS_DB_PASS (sin comillas, "$" ni "\"),
+# JWT_SECRET (openssl rand -hex 64) y las claves de las cuentas semilla: ADMIN_PASSWORD y CLIENT_PASSWORD.
+docker compose up -d --build
+docker compose ps          # esperar a que los cinco contenedores estén "healthy"
+```
+
+La primera vez Oracle tarda varios minutos en inicializarse y el gateway espera a que los tres servicios estén sanos, así que el
+8080 puede demorar en responder. Para detener sin borrar datos: `docker compose down` (con `-v` se eliminan los volúmenes).
+
+| Qué | URL |
+|---|---|
+| Gateway (API) | http://localhost:8080 |
+| Swagger UI, con selector entre `ms-tienda`, `ms-arriendos` y `ms-auth` | http://localhost:8080/swagger-ui.html |
+| Estado del gateway | http://localhost:8080/actuator/health |
+
+**Cuentas semilla.** `ms-auth` las crea al arrancar si no existen: un ADMIN (`admin@ferrefix.cl` por defecto) y un CLIENTE
+(`cliente@ferrefix.cl` por defecto). Los correos salen de `ADMIN_EMAIL` y `CLIENT_EMAIL`, y las contraseñas son las que se definan en
+`ADMIN_PASSWORD` y `CLIENT_PASSWORD` del `.env` (mínimo 8 caracteres). Si una contraseña queda vacía, esa cuenta no se crea, y cambiarla
+en el `.env` después no actualiza una cuenta ya creada. En Swagger UI: `POST /api/v1/auth/login`, copiar el `accessToken` y usarlo en
+el botón *Authorize*.
+
+**Prueba de humo.** Con el stack levantado, `./scripts/humo-gateway.sh` recorre la API a través del gateway: login, registro,
+productos, órdenes, máquinas y arriendos, cotizaciones, imágenes, CORS y Swagger. Lee las credenciales del `.env`, crea datos de prueba y
+los elimina al terminar; quedan un PNG de 1x1 y una cuenta `humo-<fecha>@ferrefix.cl`, porque la API no permite borrarlos. Ver
+[Prueba de humo](#prueba-de-humo).
+
+La API se puede probar sin el frontend; este vive en otro repositorio.
+
+### Despliegue
+
+Guía para desplegar el front, el backend y Oracle en tres máquinas separadas: [docs/despliegue.md](docs/despliegue.md). Incluye los
+grupos de seguridad, el orden de arranque, las variables de cada máquina y las comprobaciones.
+
+### Pendiente y limitaciones
+
+- **Pago con Webpay: no está integrado.** `WEBPAY_DEBITO` es solo una etiqueta del medio de pago. El pago está simulado: siempre se
+  aprueba, las órdenes nacen en `PAGADA` y no hay cobro ni confirmación de un proveedor.
+- **Una base de datos por servicio: en curso.** Hoy hay una sola instancia Oracle con un esquema por servicio (`FERREFIX_AUTH`,
+  `FERREFIX_TIENDA` y `FERREFIX_ARRIENDOS`). Cada servicio usa su propio usuario y no hay claves foráneas entre esquemas, pero los tres
+  comparten la instancia: una caída o un respaldo la afecta a todos.
+- **Límites del JWT**, ya documentados en [Autenticación con JWT y sus límites](#autenticación-con-jwt-y-sus-límites): desfase de hasta
+  15 minutos en nombre y roles, una cuenta desactivada conserva el acceso hasta que venza su token, y los tokens no se pueden revocar
+  salvo cambiando `JWT_SECRET`.
+- **Imágenes de las máquinas en `ms-tienda`**: si ese servicio cae, la API de máquinas responde, pero sus fotos no se ven. Ver
+  [Imágenes de las máquinas](#imágenes-de-las-máquinas).
+
+### Nota sobre esta rama
+
+Esta rama no comparte historia con el `master` de `arcatalanm/ferrefix-backend` (remoto `equipo`): `git merge-base` no encuentra un
+ancestro común. Por eso no se puede abrir un pull request contra él. Sirve para revisarla y probarla.
+
 ## Arquitectura
 
 Proyecto Maven multimódulo. Todo el tráfico entra por el gateway; los servicios no se publican en el host.
