@@ -1,0 +1,48 @@
+# MÁQUINA DE ORACLE (producción con 3 máquinas: front, backend y Oracle): solo la base de datos, con los tres esquemas
+# (FERREFIX_AUTH, FERREFIX_TIENDA y FERREFIX_ARRIENDOS) y su volumen persistente.
+#   docker compose -f docker-compose.oracle.yml up -d
+# Las variables vienen de .env (plantilla: .env.production.oracle.example).
+#
+# El puerto 1521 se publica hacia la red porque lo consume OTRA máquina (el backend). Esto NO lo hace público: el grupo de
+# seguridad de AWS debe permitir el 1521 solo desde el grupo de seguridad del backend (ver docs/despliegue.md). Para atarlo
+# además a una interfaz concreta, define ORACLE_BIND_IP con la IP privada de esta máquina.
+#
+# Los esquemas y sus usuarios se crean UNA sola vez, al crear el volumen: cambiar las claves después exige recrearlo
+# (y se pierden los datos). Las claves deben ser las mismas que usa el backend.
+name: ferrefix-oracle
+
+# Rotación de logs: sin esto crecen sin límite y llenan el disco del servidor.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  oracle:
+    image: gvenzl/oracle-free:slim
+    container_name: ferrefix_oracle
+    restart: unless-stopped
+    environment:
+      ORACLE_PASSWORD: ${ORACLE_PASSWORD:?Falta ORACLE_PASSWORD en .env}
+      AUTH_DB_USER: ${AUTH_DB_USER:?Falta AUTH_DB_USER en .env}
+      AUTH_DB_PASS: ${AUTH_DB_PASS:?Falta AUTH_DB_PASS en .env}
+      TIENDA_DB_USER: ${TIENDA_DB_USER:?Falta TIENDA_DB_USER en .env}
+      TIENDA_DB_PASS: ${TIENDA_DB_PASS:?Falta TIENDA_DB_PASS en .env}
+      ARRIENDOS_DB_USER: ${ARRIENDOS_DB_USER:?Falta ARRIENDOS_DB_USER en .env}
+      ARRIENDOS_DB_PASS: ${ARRIENDOS_DB_PASS:?Falta ARRIENDOS_DB_PASS en .env}
+    ports:
+      - "${ORACLE_BIND_IP:-0.0.0.0}:1521:1521"   # hacia la red (la consume el backend); restringido por el grupo de seguridad
+    volumes:
+      - oracle_data:/opt/oracle/oradata
+      - ./docker/oracle/01-crear-esquemas.sh:/container-entrypoint-initdb.d/01-crear-esquemas.sh:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 20s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+    logging: *logging
+
+volumes:
+  oracle_data:

@@ -24,37 +24,69 @@
 # La imagen subida NO se puede borrar por la API (no existe DELETE de imágenes): queda un PNG de 1x1 en uploads.
 # La cuenta registrada (humo-<fecha>@ferrefix.cl) tampoco se puede borrar por la API: queda en ms-auth. Es un CLIENTE
 # sin órdenes ni arriendos; usa SIN_REGISTRO=1 si no quieres crearla.
-# Credenciales: se leen de .env (ADMIN_EMAIL/ADMIN_PASSWORD y CLIENT_EMAIL/CLIENT_PASSWORD) y NUNCA se imprimen:
-# no viajan por argumentos de curl (se usan stdin y un archivo de cabeceras con permisos 600).
+# Credenciales: se leen de .env o del archivo indicado en ENV_FILE (ADMIN_EMAIL/ADMIN_PASSWORD y CLIENT_EMAIL/
+# CLIENT_PASSWORD) y NUNCA se imprimen: no viajan por argumentos de curl (se usan stdin y un archivo de cabeceras con
+# permisos 600).
 #
 # Uso:  ./scripts/humo-gateway.sh                 (gateway en http://localhost:8080)
 #       SIN_IMAGEN=1 ./scripts/humo-gateway.sh    (no sube la imagen)
 #       SIN_REGISTRO=1 ./scripts/humo-gateway.sh  (no registra una cuenta nueva)
 #       ORIGEN=http://localhost:5173 ./scripts/humo-gateway.sh   (por defecto: el primer origen de CORS_ALLOWED_ORIGINS)
+#       ENV_FILE=./humo.env ./scripts/humo-gateway.sh   (credenciales en otro archivo; ver "Destino remoto")
+#
+# Destino remoto (por ejemplo, el gateway en AWS, desde tu equipo):
+#   ALLOW_REMOTE=1 BASE_URL=http://IP-ELASTICA-DEL-BACKEND:8080 ORIGEN=http://IP-PUBLICA-DEL-FRONT \
+#     ENV_FILE=./humo.env ./scripts/humo-gateway.sh
+# humo.env solo necesita ADMIN_EMAIL, ADMIN_PASSWORD, CLIENT_EMAIL y CLIENT_PASSWORD (las del .env del backend); manténgalo
+# con permisos 600 y fuera del repositorio. ORIGEN debe ser el origen del front tal como lo envía el navegador. Contra un
+# destino remoto el script CREA datos de prueba en esa base (los elimina al terminar, salvo el PNG y la cuenta de humo).
+# Cada llamada HTTP tiene un tiempo máximo (CURL_MAX_TIME, 60 s por defecto): un grupo de seguridad que bloquea no lo cuelga.
 # Solo corre contra localhost salvo ALLOW_REMOTE=1. Requiere: bash, curl, python3.
 # Código de salida: 0 si todo pasó, 1 si hubo fallas, 2 si no se pudo empezar.
 
 set -u
+# ENV_FILE indicado por el usuario: se resuelve contra el directorio desde donde se invoca el script, antes del cd.
+if [ -n "${ENV_FILE:-}" ]; then
+  case "$ENV_FILE" in /*) ;; *) ENV_FILE="$PWD/$ENV_FILE" ;; esac
+fi
 cd "$(dirname "$0")/.."
+ENV_FILE="${ENV_FILE:-$PWD/.env}"
 
 BASE_URL="${BASE_URL:-http://localhost:8080}"
+REMOTO=0
 case "$BASE_URL" in
   http://localhost:*|http://127.0.0.1:*) ;;
-  *) [ "${ALLOW_REMOTE:-0}" = "1" ] || { echo "Rechazado: BASE_URL no es local (use ALLOW_REMOTE=1 si es a propósito)."; exit 2; } ;;
+  *) [ "${ALLOW_REMOTE:-0}" = "1" ] || { echo "Rechazado: BASE_URL no es local (use ALLOW_REMOTE=1 si es a propósito)."; exit 2; }
+     REMOTO=1 ;;
 esac
-[ -f .env ] || { echo "No se encontró .env en $(pwd)"; exit 2; }
+[ -f "$ENV_FILE" ] || { echo "No se encontró el archivo de variables $ENV_FILE"; exit 2; }
 command -v curl >/dev/null && command -v python3 >/dev/null || { echo "Se requieren curl y python3"; exit 2; }
 
-env_get() { # lee UNA clave de .env sin ejecutarlo ni imprimirlo
-  grep -E "^$1=" .env | head -1 | cut -d= -f2- | tr -d '\r' | sed -e 's/^"//; s/"$//' -e "s/^'//; s/'\$//"
+# Todas las llamadas HTTP con tiempo máximo: contra un destino remoto que no responde (grupo de seguridad cerrado) el
+# script no debe quedarse esperando para siempre.
+curl() { command curl --connect-timeout 5 --max-time "${CURL_MAX_TIME:-60}" "$@"; }
+
+env_get() { # lee UNA clave del archivo de variables sin ejecutarlo ni imprimirlo
+  grep -E "^$1=" "$ENV_FILE" | head -1 | cut -d= -f2- | tr -d '\r' | sed -e 's/^"//; s/"$//' -e "s/^'//; s/'\$//"
 }
 ADMIN_EMAIL="$(env_get ADMIN_EMAIL)"; ADMIN_EMAIL="${ADMIN_EMAIL:-admin@ferrefix.cl}"
 CLIENT_EMAIL="$(env_get CLIENT_EMAIL)"; CLIENT_EMAIL="${CLIENT_EMAIL:-cliente@ferrefix.cl}"
 ADMIN_PASSWORD="$(env_get ADMIN_PASSWORD)"; CLIENT_PASSWORD="$(env_get CLIENT_PASSWORD)"
-[ -n "$ADMIN_PASSWORD" ] && [ -n "$CLIENT_PASSWORD" ] || { echo "Faltan ADMIN_PASSWORD o CLIENT_PASSWORD en .env"; exit 2; }
+[ -n "$ADMIN_PASSWORD" ] && [ -n "$CLIENT_PASSWORD" ] || { echo "Faltan ADMIN_PASSWORD o CLIENT_PASSWORD en $ENV_FILE"; exit 2; }
 # Origen para la prueba de CORS: el primero de CORS_ALLOWED_ORIGINS (el mismo que usa el gateway).
 ORIGEN_ENV="$(env_get CORS_ALLOWED_ORIGINS | cut -d, -f1 | tr -d ' ')"
+ORIGEN_INDICADO="${ORIGEN:-}"
 ORIGEN="${ORIGEN:-${ORIGEN_ENV:-http://localhost:5173}}"
+
+if [ "$REMOTO" = "1" ]; then
+  echo "ATENCIÓN: destino REMOTO ($BASE_URL). Esta prueba crea datos de prueba en esa base (producto, orden, máquina, arriendo,"
+  echo "          cotizaciones y una cuenta de humo) y los elimina al terminar, salvo un PNG y la cuenta registrada."
+  if [ -z "$ORIGEN_INDICADO" ] && [ -z "$ORIGEN_ENV" ]; then
+    echo "AVISO: ORIGEN no está definido: la prueba de CORS usará $ORIGEN, que probablemente no es el origen del front."
+    echo "       Defina ORIGEN=http://IP-PUBLICA-DEL-FRONT para que coincida con CORS_ALLOWED_ORIGINS del backend."
+  fi
+  echo
+fi
 
 TMP="$(mktemp -d)"; chmod 700 "$TMP"
 HDR_ADMIN="$TMP/admin.hdr"; HDR_CLIENTE="$TMP/cliente.hdr"; HDR_NINGUNO="$TMP/ninguno.hdr"

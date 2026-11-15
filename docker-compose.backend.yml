@@ -1,0 +1,149 @@
+# MÁQUINA DEL BACKEND (producción con 3 máquinas: front, backend y Oracle): ms-gateway + ms-auth + ms-tienda +
+# ms-arriendos, SIN el contenedor de Oracle. La base corre en otra máquina de la VPC y se indica con DB_HOST (IP privada).
+#   docker compose -f docker-compose.backend.yml up -d --build
+# Las variables vienen de .env (plantilla: .env.production.backend.example). Para desarrollo local en una sola máquina
+# se usa docker-compose.yml, que levanta todo junto; las definiciones de los servicios son las mismas (lo verifica
+# scripts/comprobar-compose.sh). Único puerto público: el 8080 del gateway.
+#
+# No hay depends_on hacia Oracle porque está en otra máquina: si arranca antes que la base, cada servicio falla al conectar
+# y "restart: unless-stopped" lo reinicia hasta que Oracle responda. Levanta Oracle primero y comprueba con
+# scripts/verificar-despliegue.sh --previo.
+name: ferrefix-backend
+
+# Rotación de logs: sin esto crecen sin límite y llenan el disco del servidor.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+# Conexión a la base (otra máquina). DB_HOST es obligatorio: no hay un contenedor "oracle" al que apuntar por defecto.
+x-base-de-datos: &base-de-datos
+  DB_HOST: ${DB_HOST:?Falta DB_HOST en .env (IP privada de la máquina Oracle)}
+  DB_PORT: ${DB_PORT:-1521}
+  DB_SERVICE: ${DB_SERVICE:-FREEPDB1}
+
+services:
+  # Autenticación: registro, login, renovación de token y perfil. Único servicio que emite tokens JWT.
+  # NO publica puertos en el host: se entra siempre por ms-gateway.
+  ms-auth:
+    build:
+      context: .
+      dockerfile: ms-auth/Dockerfile
+    container_name: ferrefix_auth
+    restart: unless-stopped
+    environment:
+      <<: *base-de-datos
+      SERVER_PORT: 8081
+      AUTH_DB_USER: ${AUTH_DB_USER:?Falta AUTH_DB_USER en .env}
+      AUTH_DB_PASS: ${AUTH_DB_PASS:?Falta AUTH_DB_PASS en .env}
+      JWT_SECRET: ${JWT_SECRET:?Falta JWT_SECRET en .env}
+      JWT_ACCESS_EXPIRATION_MS: ${JWT_ACCESS_EXPIRATION_MS:-900000}
+      JWT_REFRESH_EXPIRATION_MS: ${JWT_REFRESH_EXPIRATION_MS:-604800000}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@ferrefix.cl}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      CLIENT_EMAIL: ${CLIENT_EMAIL:-cliente@ferrefix.cl}
+      CLIENT_PASSWORD: ${CLIENT_PASSWORD:-}
+      JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:-}   # opcional: límites de memoria de la JVM (ver docs/despliegue.md)
+    expose:
+      - "8081"   # solo red interna de Docker
+    # /actuator/health solo devuelve el estado (sin detalles); pasa a UP únicamente si la base responde.
+    # La imagen de ejecución (alpine) trae wget de BusyBox, no curl.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8081/actuator/health | grep -q UP"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+    logging: *logging
+
+  # Tienda: productos, imágenes (incluidas las de las máquinas: se suben y se sirven desde aquí) y órdenes. Solo VERIFICA
+  # los tokens (mismo JWT_SECRET) y toma la identidad del propio token: no consulta a ms-auth. NO publica puertos.
+  ms-tienda:
+    build:
+      context: .
+      dockerfile: ms-tienda/Dockerfile
+    container_name: ferrefix_tienda
+    restart: unless-stopped
+    environment:
+      <<: *base-de-datos
+      SERVER_PORT: 8082
+      TIENDA_DB_USER: ${TIENDA_DB_USER:?Falta TIENDA_DB_USER en .env}
+      TIENDA_DB_PASS: ${TIENDA_DB_PASS:?Falta TIENDA_DB_PASS en .env}
+      JWT_SECRET: ${JWT_SECRET:?Falta JWT_SECRET en .env}
+      FERREFIX_UPLOAD_DIR: /app/uploads
+      JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:-}
+    volumes:
+      - uploads_data:/app/uploads   # imágenes subidas: sobreviven a recrear el contenedor
+    expose:
+      - "8082"   # solo red interna de Docker
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8082/actuator/health | grep -q UP"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+    logging: *logging
+
+  # Arriendo de máquinas: modelos y unidades, arriendos y cotizaciones. Solo VERIFICA los tokens (mismo JWT_SECRET) y toma
+  # la identidad del propio token. NO publica puertos en el host.
+  ms-arriendos:
+    build:
+      context: .
+      dockerfile: ms-arriendos/Dockerfile
+    container_name: ferrefix_arriendos
+    restart: unless-stopped
+    environment:
+      <<: *base-de-datos
+      SERVER_PORT: 8083
+      ARRIENDOS_DB_USER: ${ARRIENDOS_DB_USER:?Falta ARRIENDOS_DB_USER en .env}
+      ARRIENDOS_DB_PASS: ${ARRIENDOS_DB_PASS:?Falta ARRIENDOS_DB_PASS en .env}
+      JWT_SECRET: ${JWT_SECRET:?Falta JWT_SECRET en .env}
+      JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:-}
+    expose:
+      - "8083"   # solo red interna de Docker
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8083/actuator/health | grep -q UP"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+    logging: *logging
+
+  # Único punto de entrada: enruta /api/v1/auth/** y /api/v1/users/** a ms-auth, /api/v1/maquinas/**, /arriendos/** y
+  # /cotizaciones/** a ms-arriendos, y el resto de /api/v1/** y /media/** a ms-tienda. Sirve Swagger UI (con selector por
+  # servicio), resuelve CORS y responde en JSON los errores de enrutado (404, 502, 504). No conoce secretos: no valida
+  # JWT ni usa la base de datos.
+  ms-gateway:
+    build:
+      context: .
+      dockerfile: ms-gateway/Dockerfile
+    container_name: ferrefix_gateway
+    restart: unless-stopped
+    depends_on:
+      ms-auth:
+        condition: service_healthy
+      ms-arriendos:
+        condition: service_healthy
+      ms-tienda:
+        condition: service_healthy
+    environment:
+      AUTH_URL: http://ms-auth:8081
+      ARRIENDOS_URL: http://ms-arriendos:8083
+      TIENDA_URL: http://ms-tienda:8082
+      # En producción es obligatorio: el origen del front (su IP pública), tal como lo envía el navegador.
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?Falta CORS_ALLOWED_ORIGINS en .env (origen del front, ej. http://IP-PUBLICA-DEL-FRONT)}
+      JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:-}
+    ports:
+      - "8080:8080"
+    # Health PROPIO del gateway (público, solo el estado): indica que el gateway atiende, no el estado de los servicios.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/actuator/health | grep -q UP"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging: *logging
+
+volumes:
+  uploads_data:

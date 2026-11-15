@@ -1,12 +1,13 @@
-# Oracle + ms-auth + ms-tienda + ms-arriendos + ms-gateway. Las credenciales vienen de .env (ver .env.example; en
-# producción, .env.production.example). Único puerto público: el 8080 del gateway. Los servicios solo son alcanzables
-# por la red interna de Docker.
+# DESARROLLO LOCAL, todo en una máquina: Oracle + ms-auth + ms-tienda + ms-arriendos + ms-gateway. Las credenciales
+# vienen de .env (ver .env.example). Único puerto público: el 8080 del gateway. Los servicios solo son alcanzables por la
+# red interna de Docker.
+# Producción en 3 máquinas (front, backend y Oracle): docker-compose.backend.yml y docker-compose.oracle.yml, con sus
+# plantillas .env.production.backend.example y .env.production.oracle.example (ver docs/despliegue.md).
 #
 # Oracle tiene UNA instancia con un esquema por servicio (FERREFIX_AUTH, FERREFIX_TIENDA y FERREFIX_ARRIENDOS): cada
 # servicio usa su propio usuario y no hay claves foráneas entre esquemas.
 # DB_HOST y DB_PORT apuntan a la base: por defecto, el contenedor "oracle" de este compose. Si Oracle corre en otra
-# máquina, defínelas en .env (ej. DB_HOST=10.0.2.15) y levanta solo los servicios (sin el contenedor oracle):
-#   docker compose up -d --build --no-deps ms-auth ms-tienda ms-arriendos ms-gateway
+# máquina, usa docker-compose.backend.yml en lugar de este archivo.
 
 # Rotación de logs: sin esto crecen sin límite y llenan el disco del servidor.
 x-logging: &logging
