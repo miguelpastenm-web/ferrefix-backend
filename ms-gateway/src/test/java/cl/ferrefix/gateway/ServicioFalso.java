@@ -12,13 +12,13 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * Servidor HTTP real (Reactor Netty, puerto libre) que hace de ms-tienda en los tests del gateway.
+ * Servidor HTTP real (Reactor Netty, puerto libre) que hace de un servicio (ms-tienda o ms-auth) en los tests del gateway.
  * Guarda cada petición que recibe, para comprobar qué reenvió el gateway, y responde según la ruta:
- *  - /api/v1/estado/{n}  -> responde con el código n y un cuerpo JSON propio
+ *  - /api/v1/estado/{n} y /api/v1/auth/estado/{n} -> responden con el código n y un cuerpo JSON propio
  *  - /api/v1/lento       -> tarda 5 s (más que el response-timeout de los tests)
  *  - /api/v1/con-cors    -> añade su propia Access-Control-Allow-Origin (un servicio mal configurado)
  *  - /api/v1/creado      -> 201 con cabecera Location
- *  - cualquier otra      -> 200 con {"servicio":"ms-tienda","ruta":"..."}
+ *  - cualquier otra      -> 200 con {"servicio":"<nombre>","ruta":"..."}
  */
 final class ServicioFalso {
 
@@ -33,15 +33,16 @@ final class ServicioFalso {
     private final List<Peticion> recibidas = new CopyOnWriteArrayList<>();
     private final DisposableServer servidor;
 
-    ServicioFalso() {
+    ServicioFalso(String nombre) {
         servidor = HttpServer.create().host("127.0.0.1").port(0)
                 .handle((req, res) -> req.receive().aggregate().asByteArray().defaultIfEmpty(new byte[0])
                         .flatMap(cuerpo -> {
                             recibidas.add(new Peticion(req.method().name(), req.uri(), req.requestHeaders().copy(), cuerpo));
                             String ruta = req.uri().contains("?") ? req.uri().substring(0, req.uri().indexOf('?')) : req.uri();
                             res.header("Content-Type", "application/json");
-                            if (ruta.startsWith("/api/v1/estado/")) {
-                                int codigo = Integer.parseInt(ruta.substring("/api/v1/estado/".length()));
+                            String prefijoEstado = ruta.startsWith("/api/v1/auth/estado/") ? "/api/v1/auth/estado/" : "/api/v1/estado/";
+                            if (ruta.startsWith(prefijoEstado)) {
+                                int codigo = Integer.parseInt(ruta.substring(prefijoEstado.length()));
                                 res.status(HttpResponseStatus.valueOf(codigo));
                                 return res.sendString(Mono.just(
                                         "{\"status\":" + codigo + ",\"message\":\"respuesta de ms-tienda\"}")).then();
@@ -57,7 +58,7 @@ final class ServicioFalso {
                                 res.status(HttpResponseStatus.CREATED).header("Location", "/api/v1/creado/15");
                             }
                             res.header("X-Bytes-Recibidos", String.valueOf(cuerpo.length));
-                            return res.sendString(Mono.just("{\"servicio\":\"ms-tienda\",\"ruta\":\"" + ruta + "\"}")).then();
+                            return res.sendString(Mono.just("{\"servicio\":\"" + nombre + "\",\"ruta\":\"" + ruta + "\"}")).then();
                         }))
                 .bindNow();
     }

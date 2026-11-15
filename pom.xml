@@ -17,21 +17,30 @@
 	<name>ferrefix-backend</name>
 	<description>Backend de Ferrefix: proyecto raíz que agrupa los microservicios</description>
 
-	<!-- Cada módulo es un servicio Spring Boot con su propio jar. Desde la raíz: ./mvnw test (todos)
-	     o ./mvnw -pl ms-tienda test (uno solo). -->
+	<!-- ms-* son servicios Spring Boot, cada uno con su propio jar; ferrefix-common es la librería que comparten.
+	     Desde la raíz: ./mvnw test (todos) o ./mvnw -pl ms-tienda -am test (uno solo, con lo que necesita). -->
 	<modules>
+		<module>ferrefix-common</module>
 		<module>ms-gateway</module>
+		<module>ms-auth</module>
 		<module>ms-tienda</module>
 	</modules>
 
 	<properties>
 		<java.version>21</java.version>
 		<spring-cloud.version>2025.1.4</spring-cloud.version>
+		<jjwt.version>0.12.5</jjwt.version>
+		<springdoc.version>3.0.3</springdoc.version>
 	</properties>
 
-	<!-- Solo fija versiones (Spring Cloud Gateway): no agrega dependencias a ningún módulo. -->
+	<!-- Solo fija versiones (Spring Cloud Gateway y la librería compartida): no agrega dependencias a ningún módulo. -->
 	<dependencyManagement>
 		<dependencies>
+			<dependency>
+				<groupId>cl.ferrefix</groupId>
+				<artifactId>ferrefix-common</artifactId>
+				<version>${project.version}</version>
+			</dependency>
 			<dependency>
 				<groupId>org.springframework.cloud</groupId>
 				<artifactId>spring-cloud-dependencies</artifactId>

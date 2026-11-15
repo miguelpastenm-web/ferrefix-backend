@@ -3,18 +3,16 @@ package cl.ferrefix.model.mapper;
 import cl.ferrefix.model.Arriendo;
 import cl.ferrefix.model.Maquina;
 import cl.ferrefix.model.MaquinaUnidad;
-import cl.ferrefix.model.Usuario;
 import cl.ferrefix.model.dto.ArriendoResponseDto;
 import org.springframework.stereotype.Component;
 
 @Component
 public class ArriendoMapper {
 
-    /** @param incluirCliente true solo para ADMIN (RUT, nombre y email del arrendatario). Nunca incluye el hash. */
+    /** @param incluirCliente true solo para ADMIN (RUT, nombre y email del arrendatario, copiados al arrendar). */
     public ArriendoResponseDto toResponse(Arriendo a, boolean incluirCliente) {
         MaquinaUnidad unidad = a.getUnidad();
         Maquina m = unidad.getMaquina();
-        Usuario u = a.getUsuario();
         return new ArriendoResponseDto(
                 a.getId(),
                 String.format("ARR-%06d", a.getId()),
@@ -33,6 +31,6 @@ public class ArriendoMapper {
                 a.getFechaDevolucion(),
                 a.getCreatedAt(),
                 a.getUpdatedAt(),
-                incluirCliente ? new ArriendoResponseDto.ClienteResumen(u.getId(), u.getRut(), u.getNombre(), u.getEmail()) : null);
+                incluirCliente ? new ArriendoResponseDto.ClienteResumen(a.getUsuarioId(), a.getClienteRut(), a.getClienteNombre(), a.getClienteEmail()) : null);
     }
 }

@@ -1,6 +1,7 @@
 package cl.ferrefix.controller;
 
 import cl.ferrefix.model.dto.*;
+import cl.ferrefix.security.UsuarioToken;
 import cl.ferrefix.service.CotizacionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -13,7 +14,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
@@ -41,9 +41,9 @@ public class CotizacionController {
             @ApiResponse(responseCode = "201", description = "Cotización registrada"),
             @ApiResponse(responseCode = "400", description = "Datos inválidos (campos, RUT, tipo de proyecto o detalle)")})
     public ResponseEntity<CotizacionCreadaResponseDto> crear(Authentication auth, @Valid @RequestBody CrearCotizacionRequestDto request) {
-        // Independiente del tipo de principal que deje el filtro JWT: solo importa si hay una autenticación real.
-        String email = (auth == null || !auth.isAuthenticated() || auth instanceof AnonymousAuthenticationToken) ? null : auth.getName();
-        return ResponseEntity.status(HttpStatus.CREATED).body(cotizacionService.crear(email, request));
+        // Con un token válido el filtro JWT deja un UsuarioToken; un visitante sin sesión (anónimo) queda sin usuario.
+        Long usuarioId = auth != null && auth.getPrincipal() instanceof UsuarioToken usuario ? usuario.id() : null;
+        return ResponseEntity.status(HttpStatus.CREATED).body(cotizacionService.crear(usuarioId, request));
     }
 
     @GetMapping

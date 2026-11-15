@@ -3,6 +3,7 @@ package cl.ferrefix.controller;
 import cl.ferrefix.model.dto.ActualizarArriendoRequestDto;
 import cl.ferrefix.model.dto.ArriendoResponseDto;
 import cl.ferrefix.model.dto.CrearArriendoRequestDto;
+import cl.ferrefix.security.UsuarioToken;
 import cl.ferrefix.service.ArriendoService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -42,7 +43,7 @@ public class ArriendoController {
             @ApiResponse(responseCode = "404", description = "La máquina no existe"),
             @ApiResponse(responseCode = "409", description = "No quedan unidades disponibles")})
     public ResponseEntity<ArriendoResponseDto> crear(Authentication auth, @Valid @RequestBody CrearArriendoRequestDto request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(arriendoService.crear(auth.getName(), request));
+        return ResponseEntity.status(HttpStatus.CREATED).body(arriendoService.crear(usuario(auth), request));
     }
 
     @GetMapping("/mis-arriendos")
@@ -52,7 +53,7 @@ public class ArriendoController {
             @ApiResponse(responseCode = "401", description = "Sin token o token inválido"),
             @ApiResponse(responseCode = "403", description = "No es CLIENTE")})
     public ResponseEntity<List<ArriendoResponseDto>> misArriendos(Authentication auth) {
-        return ResponseEntity.ok(arriendoService.misArriendos(auth.getName()));
+        return ResponseEntity.ok(arriendoService.misArriendos(usuario(auth).id()));
     }
 
     @GetMapping("/{id}")
@@ -62,7 +63,7 @@ public class ArriendoController {
             @ApiResponse(responseCode = "401", description = "Sin token o token inválido"),
             @ApiResponse(responseCode = "404", description = "No existe o no es suyo")})
     public ResponseEntity<ArriendoResponseDto> obtener(Authentication auth, @PathVariable Long id) {
-        return ResponseEntity.ok(arriendoService.obtener(id, auth.getName(), esAdmin(auth)));
+        return ResponseEntity.ok(arriendoService.obtener(id, usuario(auth).id(), esAdmin(auth)));
     }
 
     @GetMapping
@@ -111,6 +112,11 @@ public class ArriendoController {
     public ResponseEntity<Void> eliminar(@PathVariable Long id) {
         arriendoService.eliminar(id);
         return ResponseEntity.noContent().build();
+    }
+
+    /** Identidad que dejó el filtro JWT (sale del token, sin consultar la base de usuarios). */
+    private static UsuarioToken usuario(Authentication auth) {
+        return (UsuarioToken) auth.getPrincipal();
     }
 
     private static boolean esAdmin(Authentication auth) {

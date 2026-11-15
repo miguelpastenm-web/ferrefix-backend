@@ -11,7 +11,8 @@ import cl.ferrefix.model.mapper.ArriendoMapper;
 import cl.ferrefix.repository.ArriendoRepository;
 import cl.ferrefix.repository.MaquinaRepository;
 import cl.ferrefix.repository.MaquinaUnidadRepository;
-import cl.ferrefix.repository.UsuarioRepository;
+import cl.ferrefix.security.TokensDePrueba;
+import cl.ferrefix.security.UsuarioToken;
 import cl.ferrefix.service.impl.ArriendoServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,7 +24,6 @@ import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
-import org.springframework.security.authentication.BadCredentialsException;
 
 import java.time.*;
 import java.util.List;
@@ -42,7 +42,6 @@ class ArriendoServiceTest {
     static final LocalDate HOY = LocalDate.of(2026, 11, 20);
 
     @Mock ArriendoRepository arriendoRepo;
-    @Mock UsuarioRepository usuarioRepo;
     @Mock MaquinaUnidadRepository unidadRepo;
     @Mock MaquinaRepository maquinaRepo;
     @Spy ArriendoMapper mapper = new ArriendoMapper();
@@ -55,19 +54,14 @@ class ArriendoServiceTest {
     }
 
     private ArriendoServiceImpl servicioCon(Clock clock) {
-        return new ArriendoServiceImpl(arriendoRepo, usuarioRepo, unidadRepo,
+        return new ArriendoServiceImpl(arriendoRepo, unidadRepo,
                 new MaquinaDisponibilidad(maquinaRepo, unidadRepo), mapper, clock);
     }
 
     // ---------------------------------------------------------------- datos de prueba
-    private Usuario cliente() {
-        Usuario u = new Usuario();
-        u.setId(3L);
-        u.setRut("15432890-4");
-        u.setNombre("Juan Maestro");
-        u.setEmail("cliente@ferrefix.cl");
-        u.setActivo(true);
-        return u;
+    /** Identidad que trae el access token (id 3). En este servicio no existe tabla de usuarios. */
+    private UsuarioToken cliente() {
+        return TokensDePrueba.CLIENTE;
     }
 
     private Maquina maquina() {
@@ -99,7 +93,10 @@ class ArriendoServiceTest {
         Arriendo a = new Arriendo();
         a.setId(id);
         a.setUnidad(u);
-        a.setUsuario(cliente());
+        a.setUsuarioId(3L);
+        a.setClienteRut("15432890-4");
+        a.setClienteNombre("Juan Maestro");
+        a.setClienteEmail("cliente@ferrefix.cl");
         a.setTarifaDia(18990);
         a.setDias(5);
         a.setFechaInicio(HOY);
@@ -124,7 +121,6 @@ class ArriendoServiceTest {
     /** @param libresTrasArrendar cuántas unidades quedan DISPONIBLES después de arrendar (decide el estado del modelo). */
     private Maquina stubsDeCreacionExitosa(long libresTrasArrendar) {
         Maquina m = maquina();
-        when(usuarioRepo.findByEmailIgnoreCase("cliente@ferrefix.cl")).thenReturn(Optional.of(cliente()));
         when(maquinaRepo.findByIdForUpdate(5L)).thenReturn(Optional.of(m));
         when(unidadRepo.idsPorEstado(5L, EstadoUnidad.DISPONIBLE)).thenReturn(List.of(11L, 12L));
         when(unidadRepo.cambiarEstado(11L, EstadoUnidad.DISPONIBLE, EstadoUnidad.ARRENDADA)).thenReturn(1);
@@ -143,7 +139,7 @@ class ArriendoServiceTest {
     void crearCalculaTarifaTotalYFinEnElServidor() {
         stubsDeCreacionExitosa();
 
-        ArriendoResponseDto r = service.crear("cliente@ferrefix.cl", request(5, HOY.plusDays(2)));
+        ArriendoResponseDto r = service.crear(cliente(), request(5, HOY.plusDays(2)));
 
         ArgumentCaptor<Arriendo> cap = ArgumentCaptor.forClass(Arriendo.class);
         verify(arriendoRepo).save(cap.capture());
@@ -156,7 +152,10 @@ class ArriendoServiceTest {
         assertNull(a.getFechaDevolucion());
         assertEquals("+56 9 8765 4321", a.getTelefonoContacto());       // recortado
         assertEquals("Providencia", a.getComunaFaena());
-        assertEquals(3L, a.getUsuario().getId());                       // el cliente sale del token, no del body
+        assertEquals(3L, a.getUsuarioId());                             // el cliente sale del token, no del body
+        assertEquals("15432890-4", a.getClienteRut());                  // copia de los datos del token al arrendar
+        assertEquals("Juan Maestro", a.getClienteNombre());
+        assertEquals("cliente@ferrefix.cl", a.getClienteEmail());
         assertEquals(LocalDateTime.of(2026, 11, 20, 12, 0), a.getCreatedAt());  // hora de Chile
 
         assertEquals("ARR-000077", r.codigo());
@@ -170,7 +169,7 @@ class ArriendoServiceTest {
     @Test
     void crearUnDiaTerminaElMismoDiaQueEmpieza() {
         stubsDeCreacionExitosa();
-        ArriendoResponseDto r = service.crear("cliente@ferrefix.cl", request(1, HOY));
+        ArriendoResponseDto r = service.crear(cliente(), request(1, HOY));
         assertEquals(r.fechaInicio(), r.fechaFin());
         assertEquals(18990L, r.total());
     }
@@ -179,7 +178,7 @@ class ArriendoServiceTest {
     void crearSigueElOrdenBloqueoUpdateAtomicoRecalculo() {
         Maquina m = stubsDeCreacionExitosa(1L);
 
-        service.crear("cliente@ferrefix.cl", request(3, HOY));
+        service.crear(cliente(), request(3, HOY));
 
         InOrder orden = inOrder(maquinaRepo, unidadRepo, arriendoRepo);
         orden.verify(maquinaRepo).findByIdForUpdate(5L);                                              // 1) bloquear modelo
@@ -193,7 +192,7 @@ class ArriendoServiceTest {
     @Test
     void crearConLaUltimaUnidadDejaElModeloNoDisponible() {
         Maquina m = stubsDeCreacionExitosa(0L);
-        service.crear("cliente@ferrefix.cl", request(3, HOY));
+        service.crear(cliente(), request(3, HOY));
         assertEquals(EstadoMaquina.NO_DISPONIBLE, m.getEstado());
     }
 
@@ -201,7 +200,6 @@ class ArriendoServiceTest {
     @Test
     void crearSaltaUnidadesQueOtroSeLlevoPrimero() {
         Maquina m = maquina();
-        when(usuarioRepo.findByEmailIgnoreCase(any())).thenReturn(Optional.of(cliente()));
         when(maquinaRepo.findByIdForUpdate(5L)).thenReturn(Optional.of(m));
         when(unidadRepo.idsPorEstado(5L, EstadoUnidad.DISPONIBLE)).thenReturn(List.of(11L, 12L));
         when(unidadRepo.cambiarEstado(11L, EstadoUnidad.DISPONIBLE, EstadoUnidad.ARRENDADA)).thenReturn(0); // se la ganaron
@@ -210,18 +208,17 @@ class ArriendoServiceTest {
         when(arriendoRepo.save(any(Arriendo.class))).thenAnswer(i -> i.getArgument(0));
         when(unidadRepo.countByMaquinaIdAndEstado(5L, EstadoUnidad.DISPONIBLE)).thenReturn(0L);
 
-        ArriendoResponseDto r = service.crear("cliente@ferrefix.cl", request(2, HOY));
+        ArriendoResponseDto r = service.crear(cliente(), request(2, HOY));
 
         assertEquals("MAQ-BET-02-U02", r.unidadCodigo());
     }
 
     @Test
     void crearSinNingunaUnidadLibreDa409YNoGuarda() {
-        when(usuarioRepo.findByEmailIgnoreCase(any())).thenReturn(Optional.of(cliente()));
         when(maquinaRepo.findByIdForUpdate(5L)).thenReturn(Optional.of(maquina()));
         when(unidadRepo.idsPorEstado(5L, EstadoUnidad.DISPONIBLE)).thenReturn(List.of());
 
-        ConflictException ex = assertThrows(ConflictException.class, () -> service.crear("cliente@ferrefix.cl", request(2, HOY)));
+        ConflictException ex = assertThrows(ConflictException.class, () -> service.crear(cliente(), request(2, HOY)));
 
         assertTrue(ex.getMessage().contains("No hay unidades disponibles"));
         verify(arriendoRepo, never()).save(any());
@@ -229,12 +226,11 @@ class ArriendoServiceTest {
 
     @Test
     void crearSiTodosLosUpdateAtomicosAfectanCeroFilasDa409() {
-        when(usuarioRepo.findByEmailIgnoreCase(any())).thenReturn(Optional.of(cliente()));
         when(maquinaRepo.findByIdForUpdate(5L)).thenReturn(Optional.of(maquina()));
         when(unidadRepo.idsPorEstado(5L, EstadoUnidad.DISPONIBLE)).thenReturn(List.of(11L, 12L));
         when(unidadRepo.cambiarEstado(anyLong(), eq(EstadoUnidad.DISPONIBLE), eq(EstadoUnidad.ARRENDADA))).thenReturn(0);
 
-        assertThrows(ConflictException.class, () -> service.crear("cliente@ferrefix.cl", request(2, HOY)));
+        assertThrows(ConflictException.class, () -> service.crear(cliente(), request(2, HOY)));
 
         verify(unidadRepo, times(2)).cambiarEstado(anyLong(), any(), any());
         verify(arriendoRepo, never()).save(any());
@@ -242,51 +238,69 @@ class ArriendoServiceTest {
 
     @Test
     void crearMaquinaInexistenteDa404() {
-        when(usuarioRepo.findByEmailIgnoreCase(any())).thenReturn(Optional.of(cliente()));
         when(maquinaRepo.findByIdForUpdate(5L)).thenReturn(Optional.empty());
-        assertThrows(ResourceNotFoundException.class, () -> service.crear("cliente@ferrefix.cl", request(2, HOY)));
+        assertThrows(ResourceNotFoundException.class, () -> service.crear(cliente(), request(2, HOY)));
         verifyNoInteractions(unidadRepo, arriendoRepo);
     }
 
     @Test
-    void crearConUsuarioInexistenteOInactivoDa401SinBloquear() {
-        when(usuarioRepo.findByEmailIgnoreCase("fantasma@x.cl")).thenReturn(Optional.empty());
-        assertThrows(BadCredentialsException.class, () -> service.crear("fantasma@x.cl", request(2, HOY)));
+    void elArriendoCopiaIdRutNombreYEmailDelTokenDeQuienArrienda() {
+        // Antes se buscaba al usuario en la base; ahora la única fuente es el token (lo emitió ms-auth).
+        stubsDeCreacionExitosa();
 
-        Usuario inactivo = cliente();
-        inactivo.setActivo(false);
-        when(usuarioRepo.findByEmailIgnoreCase("cliente@ferrefix.cl")).thenReturn(Optional.of(inactivo));
-        assertThrows(BadCredentialsException.class, () -> service.crear("cliente@ferrefix.cl", request(2, HOY)));
+        service.crear(TokensDePrueba.OTRO_CLIENTE, request(5, HOY.plusDays(2)));
 
-        verifyNoInteractions(maquinaRepo, unidadRepo, arriendoRepo);
+        ArgumentCaptor<Arriendo> cap = ArgumentCaptor.forClass(Arriendo.class);
+        verify(arriendoRepo).save(cap.capture());
+        Arriendo a = cap.getValue();
+        assertEquals(8L, a.getUsuarioId());
+        assertEquals("12345678-5", a.getClienteRut());
+        assertEquals("Otra Persona", a.getClienteNombre());
+        assertEquals("otro@ferrefix.cl", a.getClienteEmail());
+    }
+
+    @Test
+    void elAdminVeLosDatosDelClienteGuardadosAlArrendarYNoLosActualesDeSuPerfil() {
+        // El arriendo se creó cuando el cliente se llamaba "Juan Maestro". Aunque después edite su perfil en ms-auth,
+        // este servicio muestra la copia guardada: no consulta a ms-auth ni comparte su base.
+        Maquina m = maquina();
+        Arriendo guardado = arriendo(77, m, unidad(m, 11, "MAQ-BET-02-U01", EstadoUnidad.ARRENDADA), EstadoArriendo.VIGENTE);
+        when(arriendoRepo.findDetalleById(77L)).thenReturn(Optional.of(guardado));
+
+        ArriendoResponseDto r = service.obtener(77L, 1L, true);
+
+        assertEquals(3L, r.cliente().id());
+        assertEquals("Juan Maestro", r.cliente().nombre());
+        assertEquals("15432890-4", r.cliente().rut());
+        assertEquals("cliente@ferrefix.cl", r.cliente().email());
     }
 
     // ---------------------------------------------------------------- crear: días y fechas
     @Test
     void crearConDiasFueraDeRangoDa400SinTocarLaBase() {
         for (int dias : new int[]{0, -1, 91, 1000}) {
-            assertThrows(BadRequestException.class, () -> service.crear("cliente@ferrefix.cl", request(dias, HOY)), "dias=" + dias);
+            assertThrows(BadRequestException.class, () -> service.crear(cliente(), request(dias, HOY)), "dias=" + dias);
         }
-        verifyNoInteractions(usuarioRepo, maquinaRepo, unidadRepo, arriendoRepo);
+        verifyNoInteractions(maquinaRepo, unidadRepo, arriendoRepo);
     }
 
     @Test
     void crearAceptaLosExtremosDeDias() {
         stubsDeCreacionExitosa();
-        assertEquals(90L * 18990, service.crear("cliente@ferrefix.cl", request(90, HOY)).total());
+        assertEquals(90L * 18990, service.crear(cliente(), request(90, HOY)).total());
     }
 
     @Test
     void crearConFechaPasadaDa400() {
         BadRequestException ex = assertThrows(BadRequestException.class,
-                () -> service.crear("cliente@ferrefix.cl", request(3, HOY.minusDays(1))));
+                () -> service.crear(cliente(), request(3, HOY.minusDays(1))));
         assertTrue(ex.getMessage().contains("anterior a hoy"));
-        verifyNoInteractions(usuarioRepo, maquinaRepo, unidadRepo, arriendoRepo);
+        verifyNoInteractions(maquinaRepo, unidadRepo, arriendoRepo);
     }
 
     @Test
     void crearConFechaMuyLejanaDa400() {
-        assertThrows(BadRequestException.class, () -> service.crear("cliente@ferrefix.cl", request(3, HOY.plusDays(366))));
+        assertThrows(BadRequestException.class, () -> service.crear(cliente(), request(3, HOY.plusDays(366))));
         verifyNoInteractions(maquinaRepo);
     }
 
@@ -295,7 +309,7 @@ class ArriendoServiceTest {
         // 2026-11-21T01:00Z = 22:00 del 20-nov en Santiago. En UTC ya sería 21-nov y "20-nov" se vería como pasado.
         service = servicioCon(Clock.fixed(Instant.parse("2026-11-21T01:00:00Z"), CHILE));
         stubsDeCreacionExitosa();
-        assertDoesNotThrow(() -> service.crear("cliente@ferrefix.cl", request(2, LocalDate.of(2026, 11, 20))));
+        assertDoesNotThrow(() -> service.crear(cliente(), request(2, LocalDate.of(2026, 11, 20))));
     }
 
     @Test
@@ -303,8 +317,8 @@ class ArriendoServiceTest {
         // 2026-11-20T02:00Z = 23:00 del 19-nov en Santiago. En UTC sería 20-nov y "19-nov" se rechazaría por error.
         service = servicioCon(Clock.fixed(Instant.parse("2026-11-20T02:00:00Z"), CHILE));
         stubsDeCreacionExitosa();
-        assertDoesNotThrow(() -> service.crear("cliente@ferrefix.cl", request(2, LocalDate.of(2026, 11, 19))));
-        assertThrows(BadRequestException.class, () -> service.crear("cliente@ferrefix.cl", request(2, LocalDate.of(2026, 11, 18))));
+        assertDoesNotThrow(() -> service.crear(cliente(), request(2, LocalDate.of(2026, 11, 19))));
+        assertThrows(BadRequestException.class, () -> service.crear(cliente(), request(2, LocalDate.of(2026, 11, 18))));
     }
 
     // ---------------------------------------------------------------- lectura
@@ -312,10 +326,9 @@ class ArriendoServiceTest {
     void misArriendosUsaElUsuarioDelTokenYNoExponeSusDatos() {
         Maquina m = maquina();
         Arriendo a = arriendo(77, m, unidad(m, 11, "MAQ-BET-02-U01", EstadoUnidad.ARRENDADA), EstadoArriendo.VIGENTE);
-        when(usuarioRepo.findByEmailIgnoreCase("cliente@ferrefix.cl")).thenReturn(Optional.of(cliente()));
         when(arriendoRepo.findByUsuarioIdOrderByCreatedAtDescIdDesc(3L)).thenReturn(List.of(a));
 
-        List<ArriendoResponseDto> r = service.misArriendos("cliente@ferrefix.cl");
+        List<ArriendoResponseDto> r = service.misArriendos(3L);
 
         assertEquals(1, r.size());
         assertNull(r.get(0).cliente());
@@ -326,7 +339,7 @@ class ArriendoServiceTest {
         Maquina m = maquina();
         when(arriendoRepo.findDetalleById(77L)).thenReturn(Optional.of(
                 arriendo(77, m, unidad(m, 11, "MAQ-BET-02-U01", EstadoUnidad.ARRENDADA), EstadoArriendo.VIGENTE)));
-        ArriendoResponseDto r = service.obtener(77L, "CLIENTE@ferrefix.cl", false);   // sin importar mayúsculas
+        ArriendoResponseDto r = service.obtener(77L, 3L, false);
         assertEquals("ARR-000077", r.codigo());
         assertNull(r.cliente());
     }
@@ -337,7 +350,7 @@ class ArriendoServiceTest {
         when(arriendoRepo.findDetalleById(77L)).thenReturn(Optional.of(
                 arriendo(77, m, unidad(m, 11, "MAQ-BET-02-U01", EstadoUnidad.ARRENDADA), EstadoArriendo.VIGENTE)));
         ResourceNotFoundException ex = assertThrows(ResourceNotFoundException.class,
-                () -> service.obtener(77L, "otro@ferrefix.cl", false));
+                () -> service.obtener(77L, 8L, false));
         assertEquals("Arriendo no encontrado: 77", ex.getMessage());
     }
 
@@ -346,7 +359,7 @@ class ArriendoServiceTest {
         Maquina m = maquina();
         when(arriendoRepo.findDetalleById(77L)).thenReturn(Optional.of(
                 arriendo(77, m, unidad(m, 11, "MAQ-BET-02-U01", EstadoUnidad.ARRENDADA), EstadoArriendo.VIGENTE)));
-        ArriendoResponseDto r = service.obtener(77L, "admin@ferrefix.cl", true);
+        ArriendoResponseDto r = service.obtener(77L, 1L, true);
         assertEquals("15432890-4", r.cliente().rut());
         assertEquals("Juan Maestro", r.cliente().nombre());
         assertEquals("cliente@ferrefix.cl", r.cliente().email());
@@ -356,7 +369,7 @@ class ArriendoServiceTest {
     @Test
     void obtenerInexistente() {
         when(arriendoRepo.findDetalleById(9L)).thenReturn(Optional.empty());
-        assertThrows(ResourceNotFoundException.class, () -> service.obtener(9L, "admin@ferrefix.cl", true));
+        assertThrows(ResourceNotFoundException.class, () -> service.obtener(9L, 1L, true));
     }
 
     @SuppressWarnings("unchecked")

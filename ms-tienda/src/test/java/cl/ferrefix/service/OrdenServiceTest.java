@@ -10,7 +10,8 @@ import cl.ferrefix.model.dto.OrdenResponseDto;
 import cl.ferrefix.model.mapper.OrdenMapper;
 import cl.ferrefix.repository.OrdenRepository;
 import cl.ferrefix.repository.ProductoRepository;
-import cl.ferrefix.repository.UsuarioRepository;
+import cl.ferrefix.security.TokensDePrueba;
+import cl.ferrefix.security.UsuarioToken;
 import cl.ferrefix.service.impl.OrdenServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,7 +22,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
-import org.springframework.security.authentication.BadCredentialsException;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -43,24 +43,18 @@ class OrdenServiceTest {
 
     @Mock OrdenRepository ordenRepo;
     @Mock ProductoRepository productoRepo;
-    @Mock UsuarioRepository usuarioRepo;
 
     OrdenServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        service = new OrdenServiceImpl(ordenRepo, productoRepo, usuarioRepo, new OrdenMapper(), new PoliticaEnvio(3990, 50_000), RELOJ);
+        service = new OrdenServiceImpl(ordenRepo, productoRepo, new OrdenMapper(), new PoliticaEnvio(3990, 50_000), RELOJ);
     }
 
     // ---------------------------------------------------------------- datos
-    private Usuario cliente() {
-        Usuario u = new Usuario();
-        u.setId(3L);
-        u.setRut("15432890-4");
-        u.setNombre("Juan Maestro");
-        u.setEmail("cliente@ferrefix.cl");
-        u.setActivo(true);
-        return u;
+    /** Identidad que trae el access token (id 3). En este servicio no existe tabla de usuarios. */
+    private UsuarioToken cliente() {
+        return TokensDePrueba.CLIENTE;
     }
 
     private Producto producto(long id, String sku, String nombre, int precio, int stock) {
@@ -86,7 +80,7 @@ class OrdenServiceTest {
     private Orden orden(long id, EstadoOrden estado) {
         Orden o = new Orden();
         o.setId(id);
-        o.setUsuario(cliente());
+        o.setUsuarioId(3L);
         o.setClienteRut("15432890-4");
         o.setClienteNombre("Juan Maestro");
         o.setClienteEmail("cliente@ferrefix.cl");
@@ -118,7 +112,6 @@ class OrdenServiceTest {
 
     /** Stubs de una compra exitosa de los productos 3, 5 y 9 (precios 1000, 2500 y 4000). */
     private void stubsDeCompraExitosa() {
-        when(usuarioRepo.findByEmailIgnoreCase("cliente@ferrefix.cl")).thenReturn(Optional.of(cliente()));
         when(productoRepo.idsExistentes(List.of(3L, 5L, 9L))).thenReturn(List.of(3L, 5L, 9L));
         when(productoRepo.descontarStock(anyLong(), anyInt())).thenReturn(1);
         when(productoRepo.findAllById(List.of(3L, 5L, 9L))).thenReturn(List.of(
@@ -137,7 +130,7 @@ class OrdenServiceTest {
     void crearCalculaTodoEnElServidorConLosPreciosDelCatalogo() {
         stubsDeCompraExitosa();
 
-        OrdenResponseDto r = service.crear("cliente@ferrefix.cl", request(linea(9, 1), linea(3, 2), linea(5, 1)));
+        OrdenResponseDto r = service.crear(cliente(), request(linea(9, 1), linea(3, 2), linea(5, 1)));
 
         ArgumentCaptor<Orden> cap = ArgumentCaptor.forClass(Orden.class);
         verify(ordenRepo).save(cap.capture());
@@ -148,11 +141,11 @@ class OrdenServiceTest {
         assertEquals(EstadoOrden.PAGADA, o.getEstado());
         assertEquals(MetodoPago.WEBPAY_DEBITO, o.getMetodoPago());
         assertEquals(LocalDateTime.of(2026, 11, 20, 12, 0), o.getCreatedAt());  // hora de Chile
-        // cliente copiado del token (usuario), no del body
+        // cliente copiado del token, no del body
         assertEquals("15432890-4", o.getClienteRut());
         assertEquals("Juan Maestro", o.getClienteNombre());
         assertEquals("cliente@ferrefix.cl", o.getClienteEmail());
-        assertEquals(3L, o.getUsuario().getId());
+        assertEquals(3L, o.getUsuarioId());
         // datos de envío recortados
         assertEquals("+56 9 8765 4321", o.getTelefonoContacto());
         assertEquals("Providencia", o.getComunaEnvio());
@@ -174,7 +167,7 @@ class OrdenServiceTest {
     @Test
     void crearDescuentaEnOrdenAscendenteSinImportarElOrdenEnQueLlegan() {
         stubsDeCompraExitosa();
-        service.crear("cliente@ferrefix.cl", request(linea(9, 1), linea(3, 2), linea(5, 1)));   // llegan 9, 3, 5
+        service.crear(cliente(), request(linea(9, 1), linea(3, 2), linea(5, 1)));   // llegan 9, 3, 5
 
         InOrder orden = inOrder(productoRepo);
         orden.verify(productoRepo).descontarStock(3L, 2);   // siempre 3, 5, 9: evita deadlocks entre compras concurrentes
@@ -185,8 +178,7 @@ class OrdenServiceTest {
     @Test
     void elEnvioEsGratisSoloSiElSubtotalSuperaLos50000() {
         for (int[] caso : new int[][]{{50_000, 3990}, {50_001, 0}, {49_999, 3990}}) {
-            reset(productoRepo, ordenRepo, usuarioRepo);
-            when(usuarioRepo.findByEmailIgnoreCase(any())).thenReturn(Optional.of(cliente()));
+            reset(productoRepo, ordenRepo);
             when(productoRepo.idsExistentes(List.of(3L))).thenReturn(List.of(3L));
             when(productoRepo.descontarStock(3L, 1)).thenReturn(1);
             when(productoRepo.findAllById(List.of(3L))).thenReturn(List.of(producto(3, "SKU-3", "Caro", caso[0], 5)));
@@ -196,7 +188,7 @@ class OrdenServiceTest {
                 return o;
             });
 
-            OrdenResponseDto r = service.crear("cliente@ferrefix.cl", request(linea(3, 1)));
+            OrdenResponseDto r = service.crear(cliente(), request(linea(3, 1)));
 
             assertEquals(caso[1], r.costoEnvio(), "subtotal " + caso[0]);
             assertEquals(caso[0] + (long) caso[1], r.total(), "subtotal " + caso[0]);
@@ -206,7 +198,6 @@ class OrdenServiceTest {
     // ---------------------------------------------------------------- crear: stock (todo o nada)
     @Test
     void siUnaLineaNoAlcanzaDa409ConDetalleYNoSeGuardaNada() {
-        when(usuarioRepo.findByEmailIgnoreCase(any())).thenReturn(Optional.of(cliente()));
         when(productoRepo.idsExistentes(List.of(3L, 5L, 9L))).thenReturn(List.of(3L, 5L, 9L));
         when(productoRepo.descontarStock(3L, 2)).thenReturn(1);
         when(productoRepo.descontarStock(5L, 4)).thenReturn(0);       // pidió 4, hay 2
@@ -214,7 +205,7 @@ class OrdenServiceTest {
         when(productoRepo.findAllById(List.of(5L))).thenReturn(List.of(producto(5, "SKU-5", "Esmeril", 2500, 2)));
 
         ConflictException ex = assertThrows(ConflictException.class,
-                () -> service.crear("cliente@ferrefix.cl", request(linea(9, 1), linea(3, 2), linea(5, 4))));
+                () -> service.crear(cliente(), request(linea(9, 1), linea(3, 2), linea(5, 4))));
 
         assertTrue(ex.getMessage().contains("No se descontó nada"));
         assertEquals(List.of("Esmeril (SKU SKU-5): disponibles 2, solicitaste 4"), ex.getDetalles());
@@ -224,26 +215,24 @@ class OrdenServiceTest {
 
     @Test
     void productoAgotadoDa409ConMensajeClaro() {
-        when(usuarioRepo.findByEmailIgnoreCase(any())).thenReturn(Optional.of(cliente()));
         when(productoRepo.idsExistentes(List.of(5L))).thenReturn(List.of(5L));
         when(productoRepo.descontarStock(5L, 1)).thenReturn(0);
         when(productoRepo.findAllById(List.of(5L))).thenReturn(List.of(producto(5, "SKU-5", "Esmeril", 2500, 0)));
 
-        ConflictException ex = assertThrows(ConflictException.class, () -> service.crear("cliente@ferrefix.cl", request(linea(5, 1))));
+        ConflictException ex = assertThrows(ConflictException.class, () -> service.crear(cliente(), request(linea(5, 1))));
 
         assertEquals(List.of("Esmeril (SKU SKU-5): agotado"), ex.getDetalles());
     }
 
     @Test
     void variasLineasProblematicasSeInformanJuntas() {
-        when(usuarioRepo.findByEmailIgnoreCase(any())).thenReturn(Optional.of(cliente()));
         when(productoRepo.idsExistentes(List.of(3L, 5L))).thenReturn(List.of(3L, 5L));
         when(productoRepo.descontarStock(anyLong(), anyInt())).thenReturn(0);
         when(productoRepo.findAllById(List.of(3L, 5L))).thenReturn(List.of(
                 producto(5, "SKU-5", "Esmeril", 2500, 0), producto(3, "SKU-3", "Taladro", 1000, 1)));
 
         ConflictException ex = assertThrows(ConflictException.class,
-                () -> service.crear("cliente@ferrefix.cl", request(linea(5, 1), linea(3, 9))));
+                () -> service.crear(cliente(), request(linea(5, 1), linea(3, 9))));
 
         assertEquals(2, ex.getDetalles().size());
         assertTrue(ex.getDetalles().contains("Taladro (SKU SKU-3): disponibles 1, solicitaste 9"));
@@ -252,11 +241,10 @@ class OrdenServiceTest {
 
     @Test
     void productoInexistenteDa404SinDescontarNada() {
-        when(usuarioRepo.findByEmailIgnoreCase(any())).thenReturn(Optional.of(cliente()));
         when(productoRepo.idsExistentes(List.of(3L, 77L))).thenReturn(List.of(3L));
 
         ResourceNotFoundException ex = assertThrows(ResourceNotFoundException.class,
-                () -> service.crear("cliente@ferrefix.cl", request(linea(3, 1), linea(77, 1))));
+                () -> service.crear(cliente(), request(linea(3, 1), linea(77, 1))));
 
         assertTrue(ex.getMessage().contains("77"));
         verify(productoRepo, never()).descontarStock(anyLong(), anyInt());
@@ -265,29 +253,31 @@ class OrdenServiceTest {
 
     @Test
     void productoRepetidoDa400SinTocarLaBase() {
-        assertThrows(BadRequestException.class, () -> service.crear("cliente@ferrefix.cl", request(linea(3, 1), linea(3, 2))));
-        verifyNoInteractions(usuarioRepo, productoRepo, ordenRepo);
+        assertThrows(BadRequestException.class, () -> service.crear(cliente(), request(linea(3, 1), linea(3, 2))));
+        verifyNoInteractions(productoRepo, ordenRepo);
     }
 
     @Test
-    void usuarioInexistenteOInactivoDa401SinTocarElStock() {
-        when(usuarioRepo.findByEmailIgnoreCase("fantasma@x.cl")).thenReturn(Optional.empty());
-        assertThrows(BadCredentialsException.class, () -> service.crear("fantasma@x.cl", request(linea(3, 1))));
+    void laOrdenCopiaIdRutNombreYEmailDelTokenDeQuienCompra() {
+        // Antes se buscaba al usuario en la base; ahora la única fuente es el token (lo emitió ms-auth).
+        stubsDeCompraExitosa();
 
-        Usuario inactivo = cliente();
-        inactivo.setActivo(false);
-        when(usuarioRepo.findByEmailIgnoreCase("cliente@ferrefix.cl")).thenReturn(Optional.of(inactivo));
-        assertThrows(BadCredentialsException.class, () -> service.crear("cliente@ferrefix.cl", request(linea(3, 1))));
+        service.crear(TokensDePrueba.OTRO_CLIENTE, request(linea(9, 1), linea(3, 2), linea(5, 1)));
 
-        verifyNoInteractions(productoRepo, ordenRepo);
+        ArgumentCaptor<Orden> cap = ArgumentCaptor.forClass(Orden.class);
+        verify(ordenRepo).save(cap.capture());
+        Orden o = cap.getValue();
+        assertEquals(8L, o.getUsuarioId());
+        assertEquals("12345678-5", o.getClienteRut());
+        assertEquals("Otra Persona", o.getClienteNombre());
+        assertEquals("otro@ferrefix.cl", o.getClienteEmail());
     }
 
     // ---------------------------------------------------------------- lectura
     @Test
     void misOrdenesUsaElUsuarioDelTokenYNoExponeSuIdentidad() {
-        when(usuarioRepo.findByEmailIgnoreCase("cliente@ferrefix.cl")).thenReturn(Optional.of(cliente()));
         when(ordenRepo.findByUsuarioIdOrderByCreatedAtDescIdDesc(3L)).thenReturn(List.of(orden(501, EstadoOrden.PAGADA)));
-        List<OrdenResponseDto> r = service.misOrdenes("cliente@ferrefix.cl");
+        List<OrdenResponseDto> r = service.misOrdenes(3L);
         assertEquals(1, r.size());
         assertNull(r.get(0).cliente());
     }
@@ -296,12 +286,12 @@ class OrdenServiceTest {
     void obtenerPropiaOk_ajenaDa404_adminVeTodaConCliente() {
         when(ordenRepo.findById(501L)).thenReturn(Optional.of(orden(501, EstadoOrden.PAGADA)));
 
-        assertEquals("ORD-000501", service.obtener(501L, "CLIENTE@ferrefix.cl", false).codigo());
+        assertEquals("ORD-000501", service.obtener(501L, 3L, false).codigo());
 
-        ResourceNotFoundException ex = assertThrows(ResourceNotFoundException.class, () -> service.obtener(501L, "otro@ferrefix.cl", false));
+        ResourceNotFoundException ex = assertThrows(ResourceNotFoundException.class, () -> service.obtener(501L, 8L, false));
         assertEquals("Orden no encontrada: 501", ex.getMessage());      // igual que una inexistente
 
-        OrdenResponseDto admin = service.obtener(501L, "admin@ferrefix.cl", true);
+        OrdenResponseDto admin = service.obtener(501L, 1L, true);
         assertEquals("15432890-4", admin.cliente().rut());
         assertEquals("cliente@ferrefix.cl", admin.cliente().email());
     }
@@ -309,7 +299,7 @@ class OrdenServiceTest {
     @Test
     void obtenerInexistente() {
         when(ordenRepo.findById(9L)).thenReturn(Optional.empty());
-        assertThrows(ResourceNotFoundException.class, () -> service.obtener(9L, "admin@ferrefix.cl", true));
+        assertThrows(ResourceNotFoundException.class, () -> service.obtener(9L, 1L, true));
     }
 
     @SuppressWarnings("unchecked")

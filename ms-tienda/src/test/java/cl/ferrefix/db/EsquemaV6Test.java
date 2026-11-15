@@ -104,8 +104,9 @@ class EsquemaV6Test {
     }
 
     @Test
-    void laCotizacionPuedeQuedarSinUsuarioYSuFkLoDejaEnNullSiSeBorraElUsuario() {
-        assertTrue(sql.contains("FK_COTIZACIONES_USUARIO FOREIGN KEY (USUARIO_ID) REFERENCES USUARIOS (ID) ON DELETE SET NULL"));
+    void laCotizacionPuedeQuedarSinUsuarioYNoTieneClaveForaneaHaciaUsuarios() {
+        // Los usuarios viven en el esquema de ms-auth: aquí USUARIO_ID es una columna simple, sin FK.
+        assertFalse(sql.contains("FK_COTIZACIONES_USUARIO"));
         assertTrue(Pattern.compile("COTIZACIONES \\([^;]*USUARIO_ID\\s+NUMBER\\(19,0\\),", Pattern.DOTALL).matcher(sql).find(), "USUARIO_ID debe ser nullable");
     }
 

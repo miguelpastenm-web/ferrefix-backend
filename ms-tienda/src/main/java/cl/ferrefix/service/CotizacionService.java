@@ -10,7 +10,7 @@ public interface CotizacionService {
      * @param emailAutenticado email del token si la petición traía un token válido; null si fue anónima.
      *                         Si el usuario no existe o está inactivo, la cotización se guarda igual con usuarioId nulo.
      */
-    CotizacionCreadaResponseDto crear(String emailAutenticado, CrearCotizacionRequestDto request);
+    CotizacionCreadaResponseDto crear(Long usuarioId, CrearCotizacionRequestDto request);
 
     List<CotizacionResponseDto> listar(String estado);
 

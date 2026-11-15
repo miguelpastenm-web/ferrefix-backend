@@ -3,6 +3,7 @@ package cl.ferrefix.controller;
 import cl.ferrefix.model.dto.CambiarEstadoOrdenRequestDto;
 import cl.ferrefix.model.dto.CrearOrdenRequestDto;
 import cl.ferrefix.model.dto.OrdenResponseDto;
+import cl.ferrefix.security.UsuarioToken;
 import cl.ferrefix.service.OrdenService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -42,7 +43,7 @@ public class OrdenController {
             @ApiResponse(responseCode = "404", description = "Algún producto no existe"),
             @ApiResponse(responseCode = "409", description = "Producto agotado, stock insuficiente, o recurso ocupado (reintente)")})
     public ResponseEntity<OrdenResponseDto> crear(Authentication auth, @Valid @RequestBody CrearOrdenRequestDto request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(ordenService.crear(auth.getName(), request));
+        return ResponseEntity.status(HttpStatus.CREATED).body(ordenService.crear(usuario(auth), request));
     }
 
     @GetMapping("/mis-ordenes")
@@ -52,7 +53,7 @@ public class OrdenController {
             @ApiResponse(responseCode = "401", description = "Sin token o token inválido"),
             @ApiResponse(responseCode = "403", description = "No es CLIENTE")})
     public ResponseEntity<List<OrdenResponseDto>> misOrdenes(Authentication auth) {
-        return ResponseEntity.ok(ordenService.misOrdenes(auth.getName()));
+        return ResponseEntity.ok(ordenService.misOrdenes(usuario(auth).id()));
     }
 
     @GetMapping("/{id}")
@@ -63,7 +64,7 @@ public class OrdenController {
             @ApiResponse(responseCode = "404", description = "No existe o no es suya")})
     public ResponseEntity<OrdenResponseDto> obtener(Authentication auth, @PathVariable Long id) {
         boolean esAdmin = auth.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
-        return ResponseEntity.ok(ordenService.obtener(id, auth.getName(), esAdmin));
+        return ResponseEntity.ok(ordenService.obtener(id, usuario(auth).id(), esAdmin));
     }
 
     @GetMapping
@@ -102,5 +103,10 @@ public class OrdenController {
     public ResponseEntity<Void> eliminar(@PathVariable Long id) {
         ordenService.eliminar(id);
         return ResponseEntity.noContent().build();
+    }
+
+    /** Identidad que dejó el filtro JWT (sale del token, sin consultar la base de usuarios). */
+    private static UsuarioToken usuario(Authentication auth) {
+        return (UsuarioToken) auth.getPrincipal();
     }
 }

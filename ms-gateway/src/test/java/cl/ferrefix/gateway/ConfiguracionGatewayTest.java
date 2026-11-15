@@ -29,12 +29,16 @@ class ConfiguracionGatewayTest {
     }
 
     @Test
-    void hayUnaSolaRutaHaciaMsTienda() {
+    void hayRutasParaAuthTiendaYLosDocumentosDeAmbos() {
         List<Route> definidas = rutas.getRoutes().collectList().block();
         assertNotNull(definidas);
-        assertEquals(1, definidas.size());
-        assertEquals("ms-tienda", definidas.get(0).getId());
-        assertEquals("http://localhost:8082", definidas.get(0).getUri().toString());
+        // Orden de evaluación: la ruta de ms-auth va antes que la general de /api/v1/**.
+        assertEquals(List.of("ms-auth", "ms-tienda", "docs-ms-auth", "docs-ms-tienda"),
+                definidas.stream().map(Route::getId).toList());
+        assertEquals("http://localhost:8081", definidas.get(0).getUri().toString());   // AUTH_URL por defecto
+        assertEquals("http://localhost:8082", definidas.get(1).getUri().toString());   // TIENDA_URL por defecto
+        assertEquals("http://localhost:8081", definidas.get(2).getUri().toString());
+        assertEquals("http://localhost:8082", definidas.get(3).getUri().toString());
     }
 
     @Test

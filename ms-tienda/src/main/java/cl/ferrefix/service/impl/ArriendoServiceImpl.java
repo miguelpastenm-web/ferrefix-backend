@@ -10,14 +10,13 @@ import cl.ferrefix.model.dto.CrearArriendoRequestDto;
 import cl.ferrefix.model.mapper.ArriendoMapper;
 import cl.ferrefix.repository.ArriendoRepository;
 import cl.ferrefix.repository.MaquinaUnidadRepository;
-import cl.ferrefix.repository.UsuarioRepository;
+import cl.ferrefix.security.UsuarioToken;
 import cl.ferrefix.service.ArriendoService;
 import cl.ferrefix.service.MaquinaDisponibilidad;
 import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
-import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -44,7 +43,6 @@ public class ArriendoServiceImpl implements ArriendoService {
     static final int MAX_DIAS_DE_ANTICIPACION = 365;
 
     private final ArriendoRepository arriendoRepository;
-    private final UsuarioRepository usuarioRepository;
     private final MaquinaUnidadRepository unidadRepository;
     private final MaquinaDisponibilidad disponibilidad;
     private final ArriendoMapper mapper;
@@ -53,12 +51,9 @@ public class ArriendoServiceImpl implements ArriendoService {
     // ---------------------------------------------------------------- crear
     @Override
     @Transactional
-    public ArriendoResponseDto crear(String emailCliente, CrearArriendoRequestDto request) {
+    public ArriendoResponseDto crear(UsuarioToken cliente, CrearArriendoRequestDto request) {
         // Validaciones que no necesitan base de datos: fallan antes de tomar ningún bloqueo.
         validarPeriodo(request.diasArriendo(), request.fechaInicio());
-        Usuario cliente = usuarioRepository.findByEmailIgnoreCase(emailCliente)
-                .filter(Usuario::isActivo)
-                .orElseThrow(() -> new BadCredentialsException("Usuario no válido"));
 
         Maquina maquina = disponibilidad.bloquear(request.maquinaId());                      // 1) bloquear el modelo
         MaquinaUnidad unidad = unidadRepository.findById(tomarPrimeraUnidadLibre(maquina.getId()))
@@ -67,7 +62,12 @@ public class ArriendoServiceImpl implements ArriendoService {
         LocalDateTime ahora = LocalDateTime.now(clock);
         Arriendo a = new Arriendo();
         a.setUnidad(unidad);
-        a.setUsuario(cliente);
+        // El cliente sale del token (lo emitió ms-auth): aquí no se consulta la base de usuarios. Se guarda una copia
+        // de sus datos para que el ADMIN vea quién arrendó sin depender de otro servicio.
+        a.setUsuarioId(cliente.id());
+        a.setClienteRut(cliente.rut());
+        a.setClienteNombre(cliente.nombre());
+        a.setClienteEmail(cliente.email());
         a.setTarifaDia(maquina.getTarifaDia());                                  // tarifa copiada del modelo, no del cliente
         a.setDias(request.diasArriendo());
         a.setFechaInicio(request.fechaInicio());
@@ -112,19 +112,17 @@ public class ArriendoServiceImpl implements ArriendoService {
     // ---------------------------------------------------------------- lectura
     @Override
     @Transactional(readOnly = true)
-    public List<ArriendoResponseDto> misArriendos(String emailCliente) {
-        Usuario cliente = usuarioRepository.findByEmailIgnoreCase(emailCliente)
-                .orElseThrow(() -> new BadCredentialsException("Usuario no válido"));
-        return arriendoRepository.findByUsuarioIdOrderByCreatedAtDescIdDesc(cliente.getId()).stream()
+    public List<ArriendoResponseDto> misArriendos(Long usuarioId) {
+        return arriendoRepository.findByUsuarioIdOrderByCreatedAtDescIdDesc(usuarioId).stream()
                 .map(a -> mapper.toResponse(a, false)).toList();
     }
 
     @Override
     @Transactional(readOnly = true)
-    public ArriendoResponseDto obtener(Long id, String email, boolean esAdmin) {
+    public ArriendoResponseDto obtener(Long id, Long usuarioId, boolean esAdmin) {
         Arriendo a = arriendoRepository.findDetalleById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Arriendo no encontrado: " + id));
-        if (!esAdmin && !a.getUsuario().getEmail().equalsIgnoreCase(email)) {
+        if (!esAdmin && !a.getUsuarioId().equals(usuarioId)) {
             // Se responde igual que si no existiera: no se revela que ese id pertenece a otra persona.
             throw new ResourceNotFoundException("Arriendo no encontrado: " + id);
         }
@@ -149,7 +147,7 @@ public class ArriendoServiceImpl implements ArriendoService {
                 p.add(cb.equal(root.get("estado"), filtro));
             }
             if (usuarioId != null) {
-                p.add(cb.equal(root.get("usuario").get("id"), usuarioId));
+                p.add(cb.equal(root.get("usuarioId"), usuarioId));
             }
             if (maquinaId != null) {
                 p.add(cb.equal(root.get("unidad").get("maquina").get("id"), maquinaId));

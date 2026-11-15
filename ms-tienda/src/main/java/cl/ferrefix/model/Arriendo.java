@@ -24,9 +24,19 @@ public class Arriendo {
     @JoinColumn(name = "UNIDAD_ID", nullable = false, updatable = false)
     private MaquinaUnidad unidad;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "USUARIO_ID", nullable = false, updatable = false)
-    private Usuario usuario;
+    /** Id del usuario en ms-auth. Columna simple: entre servicios no hay clave foránea ni entidad compartida. */
+    @Column(name = "USUARIO_ID", nullable = false, updatable = false)
+    private Long usuarioId;
+
+    /** Copia de los datos del cliente al arrendar (salen del token): la historia no cambia si edita su perfil. */
+    @Column(name = "CLIENTE_RUT", nullable = false, updatable = false, length = 12)
+    private String clienteRut;
+
+    @Column(name = "CLIENTE_NOMBRE", nullable = false, updatable = false, length = 120)
+    private String clienteNombre;
+
+    @Column(name = "CLIENTE_EMAIL", nullable = false, updatable = false, length = 120)
+    private String clienteEmail;
 
     @Column(name = "TARIFA_DIA", nullable = false, updatable = false)
     private Integer tarifaDia;

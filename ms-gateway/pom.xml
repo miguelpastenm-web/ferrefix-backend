@@ -19,6 +19,12 @@
 			<groupId>org.springframework.cloud</groupId>
 			<artifactId>spring-cloud-starter-gateway-server-webflux</artifactId>
 		</dependency>
+		<!-- Swagger UI único (con selector por servicio). Los servicios solo publican su documento OpenAPI. -->
+		<dependency>
+			<groupId>org.springdoc</groupId>
+			<artifactId>springdoc-openapi-starter-webflux-ui</artifactId>
+			<version>${springdoc.version}</version>
+		</dependency>
 		<!-- Solo se expone /actuator/health (ver application.yml) -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>

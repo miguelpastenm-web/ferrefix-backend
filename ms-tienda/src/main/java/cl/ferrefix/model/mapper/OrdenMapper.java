@@ -27,7 +27,7 @@ public class OrdenMapper {
                 o.getCreatedAt(),
                 o.getUpdatedAt(),
                 incluirCliente
-                        ? new OrdenResponseDto.Cliente(o.getUsuario().getId(), o.getClienteRut(), o.getClienteNombre(), o.getClienteEmail())
+                        ? new OrdenResponseDto.Cliente(o.getUsuarioId(), o.getClienteRut(), o.getClienteNombre(), o.getClienteEmail())
                         : null);
     }
 }
